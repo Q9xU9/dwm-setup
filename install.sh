@@ -29,7 +29,7 @@ install_packages() {
         libx11 libxft libxinerama freetype2 fontconfig \
         picom dunst \
         xclip xdotool xsel \
-        pulseaudio pavucontrol alsa-utils \
+        pavucontrol alsa-utils \
         noto-fonts noto-fonts-cjk ttf-jetbrains-mono ttf-font-awesome \
         ranger lf \
         gnome-disk-utility \
