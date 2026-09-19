@@ -1,9 +1,12 @@
 #!/bin/bash
 # install.sh — Полная установка DWM окружения на CachyOS/Arch
-# Версия 4.0 — Умный загрузчик (гарантирует скачивание DWM/st/dmenu при любых блокировках)
+# Версия 5.0 — Обход блокировок через Gitee, Codeberg и Wayback Machine
 
 set -e
-export GIT_TERMINAL_PROMPT=0  # Запретить git требовать пароли
+
+# Полностью отключаем любые запросы паролей от Git в терминале
+export GIT_TERMINAL_PROMPT=0
+export GIT_ASKPASS=/bin/echo
 
 # ===================== ЦВЕТА =====================
 RED='\033[0;31m'
@@ -19,10 +22,10 @@ info()  { echo -e "${CYAN}[i]${NC} $1"; }
 
 # ===================== ЗАВИСИМОСТИ =====================
 install_packages() {
-    log "Обновление системных репозиториев..."
+    log "Обновление системных баз данных pacman..."
     sudo pacman -Syu --noconfirm
 
-    log "Установка системных зависимостей..."
+    log "Установка основных программ и библиотек..."
     sudo pacman -S --needed --noconfirm \
         base-devel git xorg xorg-xinit xorg-xrandr xorg-xsetroot \
         libx11 libxft libxinerama freetype2 fontconfig \
@@ -39,106 +42,100 @@ install_packages() {
         networkmanager network-manager-applet \
         openssh
 
-    log "Включение службы NetworkManager..."
+    log "Включение NetworkManager..."
     sudo systemctl enable --now NetworkManager 2>/dev/null || true
 }
 
 # ===================== YAY (AUR HELPER) =====================
 install_yay() {
     if ! command -v yay &>/dev/null; then
-        log "Установка AUR-помощника yay..."
+        log "Установка yay (для AUR пакетов)..."
         cd /tmp
         rm -rf yay
-        git clone https://aur.archlinux.org/yay.git
+        git clone --depth 1 https://aur.archlinux.org/yay.git
         cd yay
         makepkg -si --noconfirm
         cd ~
     else
-        log "yay уже установлен в системе"
+        log "yay уже установлен"
     fi
 }
 
 # ===================== AUR ПАКЕТЫ =====================
 install_aur_packages() {
-    log "Установка пользовательских пакетов из AUR..."
+    log "Установка приложений из AUR..."
 
-    # Zen Browser
-    yay -S --needed --noconfirm zen-browser-bin 2>/dev/null || \
-    yay -S --needed --noconfirm zen-browser 2>/dev/null || \
-        warn "Zen Browser не найден в AUR, установите его позже вручную"
+    # Устанавливаем Zen Browser (мягкая установка, не уронит скрипт при ошибке)
+    info "Установка Zen Browser..."
+    yay -S --needed --noconfirm zen-browser-bin || \
+    yay -S --needed --noconfirm zen-browser || \
+    warn "Не удалось установить Zen Browser из AUR, установите его позже вручную."
 
     # Telegram
+    info "Установка Telegram..."
     yay -S --needed --noconfirm telegram-desktop || \
         sudo pacman -S --needed --noconfirm telegram-desktop
 
-    # Proton CachyOS
+    # Proton CachyOS (если не найдет — не страшно, Steam сам скачает Proton-GE)
+    info "Установка Proton..."
+    yay -S --needed --noconfirm proton-cachyos-bin 2>/dev/null || \
     yay -S --needed --noconfirm proton-cachyos 2>/dev/null || \
     yay -S --needed --noconfirm proton-ge-custom-bin 2>/dev/null || \
-        warn "Proton CachyOS не найден в AUR. Вы сможете установить Proton-GE прямо через Steam"
+        warn "Proton CachyOS не найден, вы сможете установить его внутри самого Steam."
 }
 
-# ===================== УМНЫЙ МНОГОУРОВНЕВЫЙ ЗАГРУЗЧИК =====================
-download_suckless_tool() {
+# ===================== УМНЫЙ ЗАГРУЗЧИК (БЕЗ БЛОКИРОВОК) =====================
+download_tool() {
     local name=$1
-    local tar_url=$2
-    local git_mirror_1=$3
-    local git_mirror_2=$4
+    local gitee_url=$2
+    local codeberg_url=$3
+    local archive_url=$4
 
-    log "Загрузка исходного кода $name..."
+    log "Загрузка исходного кода для $name..."
     mkdir -p ~/suckless
     cd ~/suckless
-    rm -rf "$name"
+    rm -rf "$name" "${name}.tar.gz"
 
-    # Шаг 1: Пробуем официальный архив (wget с таймаутом 5 сек)
-    info "Попытка 1: Скачивание официального архива через wget..."
-    if wget --timeout=5 --tries=1 -qO "${name}.tar.gz" "$tar_url"; then
-        local ext_dir
-        ext_dir=$(tar -tf "${name}.tar.gz" | head -1 | cut -f1 -d"/")
+    # Вариант 1: Gitee (Китайское супер-быстрое зеркало)
+    info "Пробуем скачать с Gitee (быстрый запуск)..."
+    if git clone --depth 1 "$gitee_url" "$name" 2>/dev/null; then
+        log "$name успешно загружен с Gitee!"
+        return 0
+    fi
+
+    # Вариант 2: Codeberg (Европейский независимый хостинг)
+    warn "Gitee недоступен. Пробуем Codeberg..."
+    if git clone --depth 1 "$codeberg_url" "$name" 2>/dev/null; then
+        log "$name успешно загружен с Codeberg!"
+        return 0
+    fi
+
+    # Вариант 3: Wayback Machine (Архив интернета — 100% стабильность)
+    warn "Git-репозитории недоступны. Скачиваем стабильный архив из Wayback Machine..."
+    if wget --timeout=10 -qO "${name}.tar.gz" "$archive_url" || curl -L --connect-timeout 10 -o "${name}.tar.gz" "$archive_url"; then
         tar -xzf "${name}.tar.gz"
-        mv "$ext_dir" "$name"
+        # Переименовываем распакованную папку в простое имя (например dwm-6.5 -> dwm)
+        local extracted_dir
+        extracted_dir=$(tar -tf "${name}.tar.gz" | head -1 | cut -f1 -d"/")
+        mv "$extracted_dir" "$name"
         rm "${name}.tar.gz"
-        log "$name успешно загружен!"
+        log "$name успешно загружен из Архива Интернета!"
         return 0
     fi
 
-    # Шаг 2: Пробуем официальный архив (curl с таймаутом 5 сек)
-    info "Попытка 2: Скачивание официального архива через curl..."
-    if curl --connect-timeout 5 -sLo "${name}.tar.gz" "$tar_url"; then
-        local ext_dir
-        ext_dir=$(tar -tf "${name}.tar.gz" | head -1 | cut -f1 -d"/")
-        tar -xzf "${name}.tar.gz"
-        mv "$ext_dir" "$name"
-        rm "${name}.tar.gz"
-        log "$name успешно загружен!"
-        return 0
-    fi
-
-    # Шаг 3: Пробуем основное GitHub зеркало
-    info "Попытка 3: Клонирование чистого зеркала с GitHub..."
-    if git clone --depth 1 "$git_mirror_1" "$name" 2>/dev/null; then
-        log "$name успешно клонирован с GitHub!"
-        return 0
-    fi
-
-    # Шаг 4: Пробуем альтернативное GitLab зеркало
-    warn "GitHub недоступен. Попытка 4: Клонирование с GitLab..."
-    if git clone --depth 1 "$git_mirror_2" "$name" 2>/dev/null; then
-        log "$name успешно клонирован с GitLab!"
-        return 0
-    fi
-
-    err "Не удалось загрузить исходный код для $name! Проверьте подключение к интернету."
+    err "Не удалось загрузить $name. Проверьте подключение к интернету или DNS!"
 }
 
 # ===================== СБОРКА DWM =====================
 build_dwm() {
-    download_suckless_tool "dwm" \
-        "https://dl.suckless.org/dwm/dwm-6.5.tar.gz" \
-        "https://github.com/static-void/dwm.git" \
-        "https://gitlab.com/proshat/dwm.git"
+    download_tool "dwm" \
+        "https://gitee.com/mirrors/dwm.git" \
+        "https://codeberg.org/gergelylaba/dwm.git" \
+        "https://web.archive.org/web/20240401000000/https://dl.suckless.org/dwm/dwm-6.5.tar.gz"
 
     cd ~/suckless/dwm
 
+    # Записываем наш монохромный config.h
     cat > config.h << 'DWMCONFIG'
 /* ============================================================
  *  DWM config.h — Монохромная тема
@@ -286,16 +283,16 @@ static const Button buttons[] = {
 DWMCONFIG
 
     sudo make clean install
-    log "DWM успешно собран и установлен в систему!"
+    log "DWM успешно скомпилирован и установлен!"
     cd ~/suckless
 }
 
 # ===================== СБОРКА ST =====================
 build_st() {
-    download_suckless_tool "st" \
-        "https://dl.suckless.org/st/st-0.9.2.tar.gz" \
-        "https://github.com/static-void/st.git" \
-        "https://github.com/gorgone/st.git"
+    download_tool "st" \
+        "https://gitee.com/mirrors/st.git" \
+        "https://codeberg.org/dnkl/st.git" \
+        "https://web.archive.org/web/20240401000000/https://dl.suckless.org/st/st-0.9.2.tar.gz"
 
     cd ~/suckless/st
     sed -i 's/static char \*font = .*/static char *font = "JetBrains Mono:pixelsize=16:antialias=true:autohint=true";/' config.def.h
@@ -303,16 +300,16 @@ build_st() {
 
     cp config.def.h config.h
     sudo make clean install
-    log "st успешно собран и установлен в систему!"
+    log "st успешно скомпилирован и установлен!"
     cd ~/suckless
 }
 
 # ===================== СБОРКА DMENU =====================
 build_dmenu() {
-    download_suckless_tool "dmenu" \
-        "https://dl.suckless.org/tools/dmenu-5.3.tar.gz" \
-        "https://github.com/static-void/dmenu.git" \
-        "https://github.com/gorgone/dmenu.git"
+    download_tool "dmenu" \
+        "https://gitee.com/mirrors/dmenu.git" \
+        "https://codeberg.org/gergelylaba/dmenu.git" \
+        "https://web.archive.org/web/20240401000000/https://dl.suckless.org/tools/dmenu-5.3.tar.gz"
 
     cd ~/suckless/dmenu
     sed -i 's/static const char \*fonts\[\] = {.*/static const char *fonts[] = { "JetBrains Mono:size=11" };/' config.def.h
@@ -323,7 +320,7 @@ build_dmenu() {
 
     cp config.def.h config.h
     sudo make clean install
-    log "dmenu успешно собран и установлен в систему!"
+    log "dmenu успешно скомпилирован и установлен!"
     cd ~/suckless
 }
 
@@ -568,7 +565,7 @@ main() {
     echo ""
     echo -e "${CYAN}╔══════════════════════════════════════════════╗${NC}"
     echo -e "${CYAN}║   DWM Monochrome Setup — CachyOS / Arch     ║${NC}"
-    echo -e "${CYAN}║   Версия 4.0 (Умный загрузчик)             ║${NC}"
+    echo -e "${CYAN}║   Версия 5.0 (Максимальный обход блоков)    ║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
 
@@ -594,7 +591,7 @@ main() {
     echo -e "${GREEN}║          УСТАНОВКА ЗАВЕРШЕНА!                ║${NC}"
     echo -e "${GREEN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
-    info "Для запуска DWM перезагрузите ПК и в окне входа выберите 'DWM'."
+    info "Для запуска DWM перезагрузите ПК и выберите сессию 'DWM'."
     echo ""
 }
 
