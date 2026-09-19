@@ -1,10 +1,9 @@
 #!/bin/bash
 # install.sh — Полная установка DWM окружения на CachyOS/Arch
-# Версия 7.1 — Добавлен умный и быстрый установщик yay (CachyOS / Arch)
+# Версия 8.0 — Alacritty вместо st, xidlehook вместо xautolock
 
 set -e
 
-# Отключаем запросы паролей от Git в терминале
 export GIT_TERMINAL_PROMPT=0
 export GIT_ASKPASS=/bin/echo
 
@@ -30,11 +29,11 @@ install_packages() {
         base-devel git xorg xorg-xinit xorg-xrandr xorg-xsetroot \
         xf86-input-libinput xorg-xinput \
         libx11 libxft libxinerama freetype2 fontconfig \
-        picom dunst xautolock \
+        picom dunst \
         xclip xdotool xsel \
         pavucontrol alsa-utils \
         noto-fonts noto-fonts-cjk ttf-jetbrains-mono ttf-font-awesome \
-        lf \
+        alacritty lf \
         gnome-disk-utility \
         steam \
         wget curl tar gzip unzip htop neofetch \
@@ -47,38 +46,35 @@ install_packages() {
     sudo systemctl enable --now NetworkManager 2>/dev/null || true
 }
 
-# ===================== УМНЫЙ И БЫСТРЫЙ YAY =====================
+# ===================== YAY =====================
 install_yay() {
     if ! command -v yay &>/dev/null; then
-        log "Установка AUR-помощника yay..."
-        
-        # 1. Попытка установить напрямую из репозиториев CachyOS
+        log "Установка yay..."
+
         if sudo pacman -S --needed --noconfirm yay 2>/dev/null; then
-            log "yay успешно установлен из репозиториев CachyOS!"
+            log "yay установлен из репозиториев CachyOS!"
         else
-            # 2. Попытка установить готовую бинарную сборку yay-bin из AUR (для Arch)
-            warn "Репозитории CachyOS не найдены. Установка yay-bin из AUR..."
+            warn "Сборка yay-bin из AUR..."
             cd /tmp
             rm -rf yay-bin
             if git clone --depth 1 https://aur.archlinux.org/yay-bin.git 2>/dev/null; then
                 cd yay-bin
                 makepkg -si --noconfirm
                 cd ~
-                log "yay-bin успешно установлен!"
+                log "yay-bin установлен!"
             else
-                # 3. Резервный вариант: сборка yay из исходников
-                warn "Не удалось скачать yay-bin. Собираем стандартный yay из исходников..."
+                warn "Сборка yay из исходников..."
                 cd /tmp
                 rm -rf yay
                 git clone --depth 1 https://aur.archlinux.org/yay.git
                 cd yay
                 makepkg -si --noconfirm
                 cd ~
-                log "yay успешно скомпилирован и установлен!"
+                log "yay установлен!"
             fi
         fi
     else
-        log "yay уже установлен в системе"
+        log "yay уже установлен"
     fi
 }
 
@@ -100,6 +96,10 @@ install_aur_packages() {
     yay -S --needed --noconfirm proton-cachyos 2>/dev/null || \
     yay -S --needed --noconfirm proton-ge-custom-bin 2>/dev/null || \
         warn "Proton не найден, установите через Steam."
+
+    info "xidlehook (автоблокировка)..."
+    yay -S --needed --noconfirm xidlehook 2>/dev/null || \
+        warn "xidlehook не найден, автоблокировка не будет работать."
 }
 
 # ===================== ЗАГРУЗЧИК SUCKLESS =====================
@@ -152,7 +152,7 @@ build_dwm() {
 
     cat > config.h << 'DWMCONFIG'
 /* ============================================================
- *  DWM config.h — Тёплый монохром
+ *  DWM config.h — Тёплый монохром + Alacritty
  * ============================================================ */
 
 static const unsigned int borderpx  = 2;
@@ -174,7 +174,6 @@ static const char col_border[]      = "#3a3632";
 static const char col_border_sel[]  = "#f5efe6";
 
 static const char *colors[][3]      = {
-    /*                 fg          bg          border       */
     [SchemeNorm]   = { col_fg,     col_bg,     col_border     },
     [SchemeSel]    = { col_accent, col_bg_sel, col_border_sel },
 };
@@ -212,9 +211,9 @@ static char dmenumon[2] = "0";
 static const char *dmenucmd[]    = { "dmenu_run", "-m", dmenumon, "-fn", dmenufont,
     "-nb", col_bg, "-nf", col_fg, "-sb", col_bg_sel, "-sf", col_accent,
     "-l", "20", NULL };
-static const char *termcmd[]     = { "st", NULL };
+static const char *termcmd[]     = { "alacritty", NULL };
 static const char *browsercmd[]  = { "zen-browser", NULL };
-static const char *filemgrcmd[]  = { "st", "-e", "lf", NULL };
+static const char *filemgrcmd[]  = { "alacritty", "-e", "lf", NULL };
 static const char *telegramcmd[] = { "telegram-desktop", NULL };
 static const char *steamcmd[]    = { "steam", NULL };
 static const char *screenshot[]  = { "scrot", "-s", "/tmp/screenshot_%Y%m%d_%H%M%S.png", NULL };
@@ -230,6 +229,7 @@ static const char *bri_down[] = { "brightnessctl", "set", "10%-", NULL };
 #include <X11/XF86keysym.h>
 
 static const Key keys[] = {
+    /* ─── Запуск программ ─── */
     { MODKEY,                       XK_d,      spawn,          {.v = dmenucmd } },
     { MODKEY,                       XK_Return, spawn,          {.v = termcmd } },
     { MODKEY,                       XK_w,      spawn,          {.v = browsercmd } },
@@ -239,12 +239,14 @@ static const Key keys[] = {
     { MODKEY|ShiftMask,             XK_l,      spawn,          {.v = lockcmd } },
     { 0,                            XK_Print,  spawn,          {.v = screenshot } },
 
+    /* ─── Громкость / яркость ─── */
     { 0, XF86XK_AudioRaiseVolume, spawn, {.v = vol_up } },
     { 0, XF86XK_AudioLowerVolume, spawn, {.v = vol_down } },
     { 0, XF86XK_AudioMute,       spawn, {.v = vol_mute } },
     { 0, XF86XK_MonBrightnessUp,   spawn, {.v = bri_up } },
     { 0, XF86XK_MonBrightnessDown, spawn, {.v = bri_down } },
 
+    /* ─── Управление окнами ─── */
     { MODKEY,           XK_j,      focusstack,     {.i = +1 } },
     { MODKEY,           XK_k,      focusstack,     {.i = -1 } },
     { MODKEY,           XK_h,      setmfact,       {.f = -0.05} },
@@ -254,25 +256,31 @@ static const Key keys[] = {
     { MODKEY|ShiftMask, XK_Return, zoom,           {0} },
     { MODKEY,           XK_Tab,    view,           {0} },
 
+    /* ─── Закрытие / выход ─── */
     { MODKEY|ShiftMask,             XK_q, killclient, {0} },
     { MODKEY|ControlMask|ShiftMask, XK_q, quit,       {0} },
 
-    { MODKEY,           XK_f,     setlayout,      {.v = &layouts[0]} },
-    { MODKEY|ShiftMask, XK_f,     setlayout,      {.v = &layouts[1]} },
-    { MODKEY,           XK_m,     setlayout,      {.v = &layouts[2]} },
-    { MODKEY,           XK_space, setlayout,      {0} },
-    { MODKEY|ShiftMask, XK_space, togglefloating, {0} },
+    /* ─── Раскладки окон (БЕЗ Super+Space) ─── */
+    { MODKEY,             XK_semicolon, setlayout, {.v = &layouts[0]} },  /* tile     */
+    { MODKEY|ShiftMask,   XK_semicolon, setlayout, {.v = &layouts[1]} },  /* float    */
+    { MODKEY,             XK_m,         setlayout, {.v = &layouts[2]} },  /* monocle  */
+    { MODKEY,             XK_n,         setlayout, {0} },                 /* toggle   */
+    { MODKEY|ShiftMask,   XK_n,         togglefloating, {0} },           /* float win */
 
+    /* ─── Бар ─── */
     { MODKEY,           XK_b,      togglebar, {0} },
 
+    /* ─── Мониторы ─── */
     { MODKEY,           XK_comma,  focusmon, {.i = -1 } },
     { MODKEY,           XK_period, focusmon, {.i = +1 } },
     { MODKEY|ShiftMask, XK_comma,  tagmon,   {.i = -1 } },
     { MODKEY|ShiftMask, XK_period, tagmon,   {.i = +1 } },
 
+    /* ─── Все теги ─── */
     { MODKEY,           XK_0, view, {.ui = ~0 } },
     { MODKEY|ShiftMask, XK_0, tag,  {.ui = ~0 } },
 
+    /* ─── Теги 1-9 ─── */
     TAGKEYS(XK_1, 0) TAGKEYS(XK_2, 1) TAGKEYS(XK_3, 2)
     TAGKEYS(XK_4, 3) TAGKEYS(XK_5, 4) TAGKEYS(XK_6, 5)
     TAGKEYS(XK_7, 6) TAGKEYS(XK_8, 7) TAGKEYS(XK_9, 8)
@@ -295,28 +303,6 @@ DWMCONFIG
 
     sudo make clean install
     log "DWM установлен!"
-    cd ~/suckless
-}
-
-# ===================== СБОРКА ST =====================
-build_st() {
-    download_tool "st" \
-        "https://gitee.com/mirrors/st.git" \
-        "https://codeberg.org/dnkl/st.git" \
-        "https://web.archive.org/web/20240401000000/https://dl.suckless.org/st/st-0.9.2.tar.gz"
-
-    cd ~/suckless/st
-
-    sed -i 's/static char \*font = .*/static char *font = "JetBrains Mono:pixelsize=16:antialias=true:autohint=true";/' config.def.h
-    sed -i 's/static int borderpx.*/static int borderpx = 12;/' config.def.h
-
-    sed -i 's/\[256\] = "#......"/[256] = "#0c0b0a"/' config.def.h 2>/dev/null
-    sed -i 's/\[257\] = "#......"/[257] = "#b5ada6"/' config.def.h 2>/dev/null
-    sed -i 's/\[258\] = "#......"/[258] = "#f5efe6"/' config.def.h 2>/dev/null
-
-    cp config.def.h config.h
-    sudo make clean install
-    log "st установлен!"
     cd ~/suckless
 }
 
@@ -365,17 +351,138 @@ static const char *user  = "nobody";
 static const char *group = "nogroup";
 
 static const char *colorname[NUMCOLS] = {
-	[INIT] =   "#0c0b0a",     /* Заблокировано (тёплый чёрный) */
-	[INPUT] =  "#f5efe6",     /* Ввод пароля (кремовый) */
-	[FAILED] = "#3a3632",     /* Ошибка (тёмно-серый) */
+	[INIT] =   "#0c0b0a",
+	[INPUT] =  "#f5efe6",
+	[FAILED] = "#3a3632",
 };
 
 static const int failonclear = 1;
 SLOCKCONFIG
 
     sudo make clean install
-    log "Блокировщик slock установлен!"
+    log "slock установлен!"
     cd ~/suckless
+}
+
+# ===================== ALACRITTY (ТЁПЛЫЙ МОНОХРОМ) =====================
+create_alacritty_config() {
+    log "Создание конфига Alacritty..."
+
+    mkdir -p ~/.config/alacritty
+
+    cat > ~/.config/alacritty/alacritty.toml << 'ALACRITTY'
+# ============================================================
+#  Alacritty — Тёплый монохром
+# ============================================================
+
+[env]
+TERM = "xterm-256color"
+
+[window]
+padding = { x = 14, y = 14 }
+dynamic_padding = true
+decorations = "None"
+opacity = 0.95
+
+[scrolling]
+history = 10000
+multiplier = 3
+
+[font]
+size = 13.0
+
+[font.normal]
+family = "JetBrains Mono"
+style = "Regular"
+
+[font.bold]
+family = "JetBrains Mono"
+style = "Bold"
+
+[font.italic]
+family = "JetBrains Mono"
+style = "Italic"
+
+# ─── Тёплая монохромная палитра ───
+
+[colors.primary]
+background = "#0c0b0a"
+foreground = "#b5ada6"
+
+[colors.cursor]
+text    = "#0c0b0a"
+cursor  = "#f5efe6"
+
+[colors.vi_mode_cursor]
+text    = "#0c0b0a"
+cursor  = "#f5efe6"
+
+[colors.selection]
+text       = "#0c0b0a"
+background = "#3a3632"
+
+[colors.search.matches]
+foreground = "#0c0b0a"
+background = "#b5ada6"
+
+[colors.search.focused_match]
+foreground = "#0c0b0a"
+background = "#f5efe6"
+
+[colors.normal]
+black   = "#0c0b0a"
+red     = "#b5ada6"
+green   = "#8a8278"
+yellow  = "#d5cdc4"
+blue    = "#7a7268"
+magenta = "#a59d94"
+cyan    = "#6a6258"
+white   = "#b5ada6"
+
+[colors.bright]
+black   = "#3a3632"
+red     = "#d5cdc4"
+green   = "#a59d94"
+yellow  = "#f5efe6"
+blue    = "#8a8278"
+magenta = "#b5ada6"
+cyan    = "#7a7268"
+white   = "#f5efe6"
+
+[colors.dim]
+black   = "#0c0b0a"
+red     = "#6a6258"
+green   = "#5a5248"
+yellow  = "#7a7268"
+blue    = "#4a4238"
+magenta = "#6a6258"
+cyan    = "#3a3632"
+white   = "#8a8278"
+
+# ─── Клавиши ───
+
+[keyboard]
+bindings = [
+    { key = "V",        mods = "Control|Shift", action = "Paste" },
+    { key = "C",        mods = "Control|Shift", action = "Copy" },
+    { key = "Plus",     mods = "Control",       action = "IncreaseFontSize" },
+    { key = "Minus",    mods = "Control",       action = "DecreaseFontSize" },
+    { key = "Key0",     mods = "Control",       action = "ResetFontSize" },
+    { key = "F",        mods = "Control|Shift", action = "SearchForward" },
+    { key = "B",        mods = "Control|Shift", action = "SearchBackward" },
+    { key = "PageUp",   mods = "Shift",         action = "ScrollPageUp" },
+    { key = "PageDown", mods = "Shift",         action = "ScrollPageDown" },
+    { key = "Up",       mods = "Shift",         action = "ScrollLineUp" },
+    { key = "Down",     mods = "Shift",         action = "ScrollLineDown" },
+    { key = "Home",     mods = "Shift",         action = "ScrollToTop" },
+    { key = "End",      mods = "Shift",         action = "ScrollToBottom" },
+]
+
+[mouse]
+hide_when_typing = true
+ALACRITTY
+
+    log "Alacritty настроен"
 }
 
 # ===================== ОТКЛЮЧЕНИЕ АКСЕЛЕРАЦИИ МЫШИ =====================
@@ -425,9 +532,7 @@ get_gamma_and_brightness() {
         gamma_b=$(echo "scale=4; 0.80 + 0.20 * $progress" | bc)
     elif [ $total_minutes -ge 540 ] && [ $total_minutes -lt 1080 ]; then
         brightness="1.0"
-        gamma_r="1.0"
-        gamma_g="1.0"
-        gamma_b="1.0"
+        gamma_r="1.0"; gamma_g="1.0"; gamma_b="1.0"
     elif [ $total_minutes -ge 1080 ] && [ $total_minutes -lt 1260 ]; then
         local progress=$(echo "scale=4; ($total_minutes - 1080) / 180" | bc)
         brightness=$(echo "scale=4; 1.0 - 0.20 * $progress" | bc)
@@ -442,9 +547,7 @@ get_gamma_and_brightness() {
         gamma_b=$(echo "scale=4; 0.75 - 0.10 * $progress" | bc)
     else
         brightness="0.70"
-        gamma_r="1.0"
-        gamma_g="0.83"
-        gamma_b="0.65"
+        gamma_r="1.0"; gamma_g="0.83"; gamma_b="0.65"
     fi
     echo "$brightness $gamma_r $gamma_g $gamma_b"
 }
@@ -537,7 +640,7 @@ setxkbmap -layout us,ru -option grp:alt_shift_toggle &
 # Курсор
 xsetroot -cursor_name left_ptr &
 
-# Отключение акселерации мыши
+# Отключение акселерации мыши через xinput
 sleep 1
 for id in $(xinput list --id-only 2>/dev/null); do
     xinput set-prop "$id" "libinput Accel Profile Enabled" 0 1 2>/dev/null
@@ -552,14 +655,18 @@ xsetroot -solid "#0c0b0a" &
 dunst &
 lxsession &
 
-# Автоблокировка через 10 минут простоя
-xautolock -time 10 -locker slock -detectsleep &
+# Автоблокировка через 10 минут (xidlehook)
+if command -v xidlehook &>/dev/null; then
+    xidlehook \
+        --not-when-fullscreen \
+        --not-when-audio \
+        --timer 600 'slock' '' &
+fi
 
 # Статус-бар и ночной режим
 ~/suckless/dwm-statusbar.sh &
 ~/bin/nightshift &
 
-# Запуск
 exec dwm
 XINITRC
 
@@ -694,11 +801,11 @@ SESSION
 create_cheatsheet() {
     cat > ~/dwm-keybinds.txt << 'CHEAT'
 ╔══════════════════════════════════════════════════════════════╗
-║                    DWM KEYBINDINGS                          ║
+║                    DWM KEYBINDINGS v8                        ║
 ╠══════════════════════════════════════════════════════════════╣
 ║                                                              ║
 ║  ЗАПУСК ПРОГРАММ                                             ║
-║  Super + Enter        — Терминал (st)                        ║
+║  Super + Enter        — Терминал (Alacritty)                 ║
 ║  Super + D            — Меню запуска (dmenu)                 ║
 ║  Super + W            — Zen Browser                          ║
 ║  Super + E            — Файловый менеджер (lf)               ║
@@ -707,29 +814,39 @@ create_cheatsheet() {
 ║  Print Screen         — Скриншот                             ║
 ║                                                              ║
 ║  БЛОКИРОВКА ЭКРАНА                                           ║
-║  Super + Shift + L    — Заблокировать вручную (slock)        ║
-║  * Автоблокировка через 10 минут бездействия (xautolock)     ║
+║  Super + Shift + L    — Заблокировать (slock)                ║
+║  * Автоблокировка через 10 мин (xidlehook)                   ║
 ║                                                              ║
 ║  УПРАВЛЕНИЕ ОКНАМИ                                           ║
 ║  Super + J/K          — Переключение между окнами            ║
-║  Super + H/L          — Изменение размера окон               ║
-║  Super + Shift+Enter  — Сделать главным (master)             ║
+║  Super + H/L          — Изменение размера master             ║
+║  Super + Shift+Enter  — Сделать master                       ║
 ║  Super + Shift + Q    — Закрыть окно                         ║
-║  Super + Shift+Space  — Плавающий режим                      ║
-║  Super + F            — Tiling    Super + M — Monocle        ║
+║                                                              ║
+║  РАСКЛАДКИ ОКОН                                              ║
+║  Super + ;            — Tile (плитка)                        ║
+║  Super + Shift + ;    — Float (плавающие)                    ║
+║  Super + M            — Monocle (одно окно)                  ║
+║  Super + N            — Переключить раскладку                ║
+║  Super + Shift + N    — Сделать окно плавающим               ║
+║                                                              ║
 ║  Super + B            — Скрыть/показать панель               ║
 ║                                                              ║
 ║  РАБОЧИЕ СТОЛЫ                                               ║
-║  Super + 1-9          — Переключить рабочий стол             ║
-║  Super + Shift + 1-9  — Перенести окно на стол               ║
+║  Super + 1-9          — Переключить                          ║
+║  Super + Shift + 1-9  — Перенести окно                       ║
 ║                                                              ║
-║  НОЧНОЙ РЕЖИМ                                                ║
-║  Автоматический (nightshift в ~/bin/)                        ║
-║  nightshift-reset     — Сбросить цвет экрана                 ║
+║  ТЕРМИНАЛ (Alacritty)                                        ║
+║  Shift + PageUp/Down  — Скролл                               ║
+║  Ctrl + Shift + C     — Копировать                           ║
+║  Ctrl + Shift + V     — Вставить                             ║
+║  Ctrl + Shift + F     — Поиск                                ║
+║  Ctrl + +/-/0         — Размер шрифта                        ║
 ║                                                              ║
 ║  СИСТЕМА                                                     ║
 ║  Ctrl+Super+Shift+Q   — Выход из DWM                         ║
 ║  Alt + Shift          — Смена языка (US/RU)                  ║
+║  nightshift-reset     — Сбросить цвет экрана                 ║
 ║                                                              ║
 ╚══════════════════════════════════════════════════════════════╝
 CHEAT
@@ -740,7 +857,7 @@ main() {
     echo ""
     echo -e "${CYAN}╔══════════════════════════════════════════════╗${NC}"
     echo -e "${CYAN}║   DWM Warm Monochrome — CachyOS / Arch      ║${NC}"
-    echo -e "${CYAN}║   v7.1  Умный yay · Ночной режим · Slock    ║${NC}"
+    echo -e "${CYAN}║   v8.0  Alacritty · xidlehook · Slock       ║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
 
@@ -749,10 +866,10 @@ main() {
     install_aur_packages
 
     build_dwm
-    build_st
     build_dmenu
     build_slock
 
+    create_alacritty_config
     create_mouse_config
     create_nightshift
     create_statusbar
@@ -769,7 +886,13 @@ main() {
     echo -e "${GREEN}║          УСТАНОВКА ЗАВЕРШЕНА!                ║${NC}"
     echo -e "${GREEN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
-    info "Запуск: перезагрузите ПК → выберите сессию 'DWM' в окне входа."
+    info "Что нового в v8.0:"
+    echo "  • Alacritty вместо st (скролл, поиск, GPU)"
+    echo "  • xidlehook вместо xautolock"
+    echo "  • Super+Space больше не занят"
+    echo "  • Super+; / Super+N — раскладки окон"
+    echo ""
+    info "Запуск: перезагрузите ПК → выберите 'DWM'"
     echo ""
 }
 
