@@ -1,8 +1,9 @@
 #!/bin/bash
 # install.sh — Полная установка DWM окружения на CachyOS/Arch
-# Версия 2.0 — все исправления применены
+# Версия 3.0 — надежная загрузка исходников (без зависаний git и запросов паролей)
 
 set -e
+export GIT_TERMINAL_PROMPT=0  # Запретить git запрашивать пароли в терминале
 
 # ===================== ЦВЕТА =====================
 RED='\033[0;31m'
@@ -32,7 +33,7 @@ install_packages() {
         lf \
         gnome-disk-utility \
         steam \
-        wget curl unzip htop neofetch \
+        wget curl tar gzip unzip htop neofetch \
         feh scrot brightnessctl \
         polkit lxsession \
         networkmanager network-manager-applet \
@@ -78,13 +79,18 @@ install_aur_packages() {
 
 # ===================== СБОРКА DWM =====================
 build_dwm() {
-    log "Сборка DWM..."
+    log "Загрузка и сборка DWM..."
     mkdir -p ~/suckless
     cd ~/suckless
 
-    if [ ! -d "dwm" ]; then
-        git clone https://github.com/suckless-mirror/dwm.git
-    fi
+    rm -rf dwm
+    # Скачиваем официальный стабильный релиз архивом (качается мгновенно)
+    wget -qO dwm.tar.gz https://dl.suckless.org/dwm/dwm-6.5.tar.gz || \
+    curl -sLo dwm.tar.gz https://dl.suckless.org/dwm/dwm-6.5.tar.gz
+
+    tar -xzf dwm.tar.gz
+    mv dwm-6.5 dwm
+    rm dwm.tar.gz
 
     cat > dwm/config.h << 'DWMCONFIG'
 /* ============================================================
@@ -252,60 +258,56 @@ DWMCONFIG
 
     cd dwm
     sudo make clean install
-    log "DWM установлен"
+    log "DWM успешно установлен"
     cd ~/suckless
 }
 
 # ===================== СБОРКА ST =====================
 build_st() {
-    log "Сборка st (Simple Terminal)..."
+    log "Загрузка и сборка st (терминал)..."
     cd ~/suckless
 
-    if [ ! -d "st" ]; then
-        git clone https://github.com/suckless-mirror/st.git
-    fi
+    rm -rf st
+    wget -qO st.tar.gz https://dl.suckless.org/st/st-0.9.2.tar.gz || \
+    curl -sLo st.tar.gz https://dl.suckless.org/st/st-0.9.2.tar.gz
+
+    tar -xzf st.tar.gz
+    mv st-0.9.2 st
+    rm st.tar.gz
 
     cd st
-
-    # Правим дефолтный config.def.h — меняем шрифт и цвета
     sed -i 's/static char \*font = .*/static char *font = "JetBrains Mono:pixelsize=16:antialias=true:autohint=true";/' config.def.h
-
-    # Чёрный фон
-    sed -i 's/\[defaultbg\] = 258/[defaultbg] = 0/' config.def.h 2>/dev/null || true
-    sed -i 's/\[defaultfg\] = 259/[defaultfg] = 7/' config.def.h 2>/dev/null || true
-
-    # Увеличиваем внутренний отступ
     sed -i 's/static int borderpx.*/static int borderpx = 12;/' config.def.h
 
     cp config.def.h config.h
     sudo make clean install
-    log "st установлен"
+    log "st успешно установлен"
     cd ~/suckless
 }
 
 # ===================== СБОРКА DMENU =====================
 build_dmenu() {
-    log "Сборка dmenu..."
+    log "Загрузка и сборка dmenu..."
     cd ~/suckless
 
-    if [ ! -d "dmenu" ]; then
-        git clone https://github.com/suckless-mirror/dmenu.git
-    fi
+    rm -rf dmenu
+    wget -qO dmenu.tar.gz https://dl.suckless.org/tools/dmenu-5.3.tar.gz || \
+    curl -sLo dmenu.tar.gz https://dl.suckless.org/tools/dmenu-5.3.tar.gz
+
+    tar -xzf dmenu.tar.gz
+    mv dmenu-5.3 dmenu
+    rm dmenu.tar.gz
 
     cd dmenu
-
-    # Правим дефолтный config.def.h — монохромные цвета и вертикальный список
     sed -i 's/static const char \*fonts\[\] = {.*/static const char *fonts[] = { "JetBrains Mono:size=11" };/' config.def.h
     sed -i 's/\[SchemeNorm\] = .*/[SchemeNorm] = { "#b0b0b0", "#0a0a0a" },/' config.def.h
     sed -i 's/\[SchemeSel\] = .*/[SchemeSel]  = { "#ffffff", "#1a1a1a" },/' config.def.h
     sed -i 's/\[SchemeOut\] = .*/[SchemeOut]  = { "#000000", "#3a3a3a" },/' config.def.h
-
-    # Вертикальный список на 20 строк
     sed -i 's/static unsigned int lines.*/static unsigned int lines = 20;/' config.def.h
 
     cp config.def.h config.h
     sudo make clean install
-    log "dmenu установлен"
+    log "dmenu успешно установлен"
     cd ~/suckless
 }
 
@@ -321,7 +323,6 @@ while true; do
     DATE=$(date +'%a %d %b')
     TIME=$(date +'%H:%M')
 
-    # Батарея
     BAT=""
     if [ -f /sys/class/power_supply/BAT0/capacity ]; then
         BAT_CAP=$(cat /sys/class/power_supply/BAT0/capacity)
@@ -333,7 +334,6 @@ while true; do
         fi
     fi
 
-    # Громкость
     VOL=$(pactl get-sink-volume @DEFAULT_SINK@ 2>/dev/null | head -1 | awk '{print $5}' || echo "N/A")
     MUTE=$(pactl get-sink-mute @DEFAULT_SINK@ 2>/dev/null | awk '{print $2}')
     if [ "$MUTE" = "yes" ]; then
@@ -342,10 +342,7 @@ while true; do
         VOL="VOL:$VOL"
     fi
 
-    # RAM
     RAM=$(free -h | awk '/Mem:/ {print $3"/"$2}')
-
-    # CPU
     CPU=$(top -bn1 | grep "Cpu(s)" | awk '{print int($2+$4)}')
 
     xsetroot -name " CPU:${CPU}% | RAM:${RAM} | ${VOL}${BAT} | ${DATE} ${TIME} "
@@ -365,28 +362,14 @@ create_xinitrc() {
     cat > ~/.xinitrc << 'XINITRC'
 #!/bin/sh
 
-# Раскладка клавиатуры (US + RU, переключение Alt+Shift)
 setxkbmap -layout us,ru -option grp:alt_shift_toggle &
-
-# Курсор
 xsetroot -cursor_name left_ptr &
-
-# Композитинг
 picom --config ~/.config/picom/picom.conf -b 2>/dev/null &
-
-# Фон — сплошной чёрный (замените на feh --bg-fill /путь/к/картинке.jpg для обоев)
 xsetroot -solid "#0a0a0a" &
-
-# Уведомления
 dunst &
-
-# Polkit agent
 lxsession &
-
-# Статус-бар
 ~/suckless/dwm-statusbar.sh &
 
-# Запуск DWM
 exec dwm
 XINITRC
 
@@ -401,19 +384,12 @@ create_picom_config() {
     mkdir -p ~/.config/picom
     cat > ~/.config/picom/picom.conf << 'PICOM'
 backend = "xrender";
-
 shadow = true;
 shadow-radius = 12;
 shadow-offset-x = -7;
 shadow-offset-y = -7;
 shadow-opacity = 0.6;
 shadow-color = "#000000";
-shadow-exclude = [
-    "name = 'Notification'",
-    "class_g = 'dmenu'",
-    "class_g = 'Dunst'",
-    "_GTK_FRAME_EXTENTS@:c"
-];
 
 inactive-opacity = 0.95;
 active-opacity = 1.0;
@@ -426,11 +402,6 @@ fade-delta = 5;
 
 corner-radius = 0;
 vsync = true;
-
-focus-exclude = [
-    "class_g = 'Steam'",
-    "class_g = 'steam'",
-];
 PICOM
 
     log "Picom настроен"
@@ -449,27 +420,10 @@ create_dunst_config() {
     height = 100
     origin = top-right
     offset = 20x40
-    indicate_hidden = yes
-    transparency = 0
-    separator_height = 1
-    padding = 12
-    horizontal_padding = 15
     frame_width = 2
     frame_color = "#3a3a3a"
-    separator_color = frame
-    sort = yes
-    idle_threshold = 120
     font = JetBrains Mono 10
-    line_height = 0
-    markup = full
-    format = "<b>%s</b>\n%b"
-    alignment = left
-    show_age_threshold = 60
-    word_wrap = yes
     corner_radius = 0
-    mouse_left_click = close_current
-    mouse_middle_click = do_action
-    mouse_right_click = close_all
 
 [urgency_low]
     background = "#0a0a0a"
@@ -521,21 +475,6 @@ cmd open ${{
         *) xdg-open "$f" &;;
     esac
 }}
-
-cmd mkdir %{{
-    printf "Directory Name: "
-    read ans
-    mkdir -p "$ans"
-}}
-
-cmd mkfile %{{
-    printf "File Name: "
-    read ans
-    touch "$ans"
-}}
-
-map a mkdir
-map A mkfile
 LFRC
 
     log "lf настроен"
@@ -543,7 +482,7 @@ LFRC
 
 # ===================== GTK ТЕМА =====================
 create_gtk_theme() {
-    log "Настройка GTK темы..."
+    log "Настройка тёмной GTK темы..."
 
     mkdir -p ~/.config/gtk-3.0
     cat > ~/.config/gtk-3.0/settings.ini << 'GTK3'
@@ -551,18 +490,6 @@ create_gtk_theme() {
 gtk-theme-name=Adwaita-dark
 gtk-icon-theme-name=Adwaita
 gtk-font-name=JetBrains Mono 11
-gtk-cursor-theme-name=Adwaita
-gtk-cursor-theme-size=24
-gtk-toolbar-style=GTK_TOOLBAR_BOTH_HORIZ
-gtk-toolbar-icon-size=GTK_ICON_SIZE_LARGE_TOOLBAR
-gtk-button-images=0
-gtk-menu-images=0
-gtk-enable-event-sounds=0
-gtk-enable-input-feedback-sounds=0
-gtk-xft-antialias=1
-gtk-xft-hinting=1
-gtk-xft-hintstyle=hintfull
-gtk-xft-rgba=rgb
 gtk-application-prefer-dark-theme=1
 GTK3
 
@@ -570,18 +497,6 @@ GTK3
 gtk-theme-name="Adwaita-dark"
 gtk-icon-theme-name="Adwaita"
 gtk-font-name="JetBrains Mono 11"
-gtk-cursor-theme-name="Adwaita"
-gtk-cursor-theme-size=24
-gtk-toolbar-style=GTK_TOOLBAR_BOTH_HORIZ
-gtk-toolbar-icon-size=GTK_ICON_SIZE_LARGE_TOOLBAR
-gtk-button-images=0
-gtk-menu-images=0
-gtk-enable-event-sounds=0
-gtk-enable-input-feedback-sounds=0
-gtk-xft-antialias=1
-gtk-xft-hinting=1
-gtk-xft-hintstyle="hintfull"
-gtk-xft-rgba="rgb"
 GTK2
 
     log "GTK тема настроена"
@@ -589,7 +504,7 @@ GTK2
 
 # ===================== СЕССИЯ DWM =====================
 create_session() {
-    log "Создание файла сессии для Display Manager..."
+    log "Создание файла сессии DWM..."
 
     sudo mkdir -p /usr/share/xsessions
     sudo tee /usr/share/xsessions/dwm.desktop > /dev/null << 'SESSION'
@@ -625,33 +540,22 @@ create_cheatsheet() {
 ║                                                              ║
 ║  УПРАВЛЕНИЕ ОКНАМИ                                           ║
 ║  Super + J/K          — Переключение между окнами            ║
-║  Super + H/L          — Изменение размера master             ║
-║  Super + Shift+Enter  — Сделать master                       ║
+║  Super + H/L          — Изменение размера окон               ║
+║  Super + Shift+Enter  — Сделать главным (master)             ║
 ║  Super + Shift + Q    — Закрыть окно                         ║
 ║  Super + Shift+Space  — Плавающий режим                      ║
 ║  Super + F            — Tiling layout                        ║
 ║  Super + Shift + F    — Floating layout                      ║
 ║  Super + M            — Monocle (полный экран)               ║
-║  Super + B            — Показать/скрыть бар                  ║
+║  Super + B            — Скрыть/показать панель               ║
 ║                                                              ║
 ║  РАБОЧИЕ СТОЛЫ                                               ║
-║  Super + 1-9          — Переключение на тег                  ║
-║  Super + Shift + 1-9  — Переместить окно на тег              ║
-║  Super + 0            — Показать все теги                    ║
-║  Super + Tab          — Предыдущий тег                       ║
-║                                                              ║
-║  МОНИТОРЫ                                                    ║
-║  Super + ,/.          — Переключение монитора                ║
-║  Super + Shift + ,/.  — Переместить окно на монитор          ║
-║                                                              ║
-║  ЗВУК / ЯРКОСТЬ                                             ║
-║  Fn + Volume Up/Down  — Громкость                            ║
-║  Fn + Mute            — Без звука                            ║
-║  Fn + Brightness      — Яркость                              ║
+║  Super + 1-9          — Переключить рабочий стол             ║
+║  Super + Shift + 1-9  — Перенести окно на стол               ║
 ║                                                              ║
 ║  СИСТЕМА                                                     ║
-║  Ctrl+Super+Shift+Q   — Выход из DWM                        ║
-║  Alt + Shift          — Переключение раскладки (US/RU)       ║
+║  Ctrl+Super+Shift+Q   — Выход из DWM                         ║
+║  Alt + Shift          — Смена языка (US/RU)                  ║
 ║                                                              ║
 ╚══════════════════════════════════════════════════════════════╝
 CHEAT
@@ -664,7 +568,7 @@ main() {
     echo ""
     echo -e "${CYAN}╔══════════════════════════════════════════════╗${NC}"
     echo -e "${CYAN}║   DWM Monochrome Setup — CachyOS / Arch     ║${NC}"
-    echo -e "${CYAN}║   Версия 2.0 — все исправления              ║${NC}"
+    echo -e "${CYAN}║   Версия 3.0 (Стабильная сборка)            ║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
 
@@ -690,21 +594,9 @@ main() {
     echo -e "${GREEN}║          УСТАНОВКА ЗАВЕРШЕНА!                ║${NC}"
     echo -e "${GREEN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
-    info "Установлено:"
-    echo "  • DWM, st, dmenu (из исходников ~/suckless/)"
-    echo "  • lf (файловый менеджер)"
-    echo "  • Zen Browser, Telegram, Steam + Proton"
-    echo "  • GNOME Disks, picom, dunst"
-    echo ""
     info "Запуск:"
     echo "  Display Manager → выберите сессию 'DWM'"
-    echo "  Или через консоль: startx"
-    echo ""
-    info "Бинды: cat ~/dwm-keybinds.txt"
-    echo ""
-    info "Изменить настройки DWM:"
-    echo "  nano ~/suckless/dwm/config.h"
-    echo "  cd ~/suckless/dwm && sudo make clean install"
+    echo "  Либо из TTY: startx"
     echo ""
 }
 
