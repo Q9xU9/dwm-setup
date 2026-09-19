@@ -1,5 +1,6 @@
 #!/bin/bash
 # install.sh — Полная установка DWM окружения на CachyOS/Arch
+# Версия 2.0 — все исправления применены
 
 set -e
 
@@ -15,9 +16,6 @@ warn()  { echo -e "${YELLOW}[!]${NC} $1"; }
 err()   { echo -e "${RED}[✗]${NC} $1"; exit 1; }
 info()  { echo -e "${CYAN}[i]${NC} $1"; }
 
-DOTDIR="$HOME/.dwm-setup"
-mkdir -p "$DOTDIR"
-
 # ===================== ЗАВИСИМОСТИ =====================
 install_packages() {
     log "Обновление системы..."
@@ -31,7 +29,7 @@ install_packages() {
         xclip xdotool xsel \
         pavucontrol alsa-utils \
         noto-fonts noto-fonts-cjk ttf-jetbrains-mono ttf-font-awesome \
-        ranger lf \
+        lf \
         gnome-disk-utility \
         steam \
         wget curl unzip htop neofetch \
@@ -66,13 +64,13 @@ install_aur_packages() {
     # Zen Browser
     yay -S --needed --noconfirm zen-browser-bin 2>/dev/null || \
     yay -S --needed --noconfirm zen-browser 2>/dev/null || \
-        warn "Zen Browser: не удалось найти пакет, попробуем flatpak или ручную установку"
+        warn "Zen Browser не найден в AUR, установите вручную"
 
     # Telegram
     yay -S --needed --noconfirm telegram-desktop || \
         sudo pacman -S --needed --noconfirm telegram-desktop
 
-    # Proton CachyOS (если доступен)
+    # Proton CachyOS
     yay -S --needed --noconfirm proton-cachyos 2>/dev/null || \
     yay -S --needed --noconfirm proton-ge-custom-bin 2>/dev/null || \
         warn "Proton CachyOS не найден, установите через Steam"
@@ -84,18 +82,15 @@ build_dwm() {
     mkdir -p ~/suckless
     cd ~/suckless
 
-    # DWM
     if [ ! -d "dwm" ]; then
-        git clone https://git.suckless.org/dwm
+        git clone https://github.com/suckless-mirror/dwm.git
     fi
 
-    # Применяем конфиг
     cat > dwm/config.h << 'DWMCONFIG'
 /* ============================================================
- *  DWM config.h — Монохромная тема, панель справа
+ *  DWM config.h — Монохромная тема
  * ============================================================ */
 
-/* Внешний вид */
 static const unsigned int borderpx  = 2;
 static const unsigned int snap      = 16;
 static const int showbar            = 1;
@@ -124,11 +119,11 @@ static const char *colors[][3]      = {
 static const char *tags[] = { "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX" };
 
 static const Rule rules[] = {
-    /* class          instance  title  tags mask  isfloating  monitor */
-    { "Steam",        NULL,     NULL,  1 << 3,    1,          -1 },
-    { "TelegramDesktop", NULL,  NULL,  1 << 2,    0,          -1 },
-    { "Gimp",         NULL,     NULL,  0,         1,          -1 },
-    { "pavucontrol",  NULL,     NULL,  0,         1,          -1 },
+    /* class              instance  title  tags mask  isfloating  monitor */
+    { "Steam",            NULL,     NULL,  1 << 3,    1,          -1 },
+    { "TelegramDesktop",  NULL,     NULL,  1 << 2,    0,          -1 },
+    { "Gimp",             NULL,     NULL,  0,         1,          -1 },
+    { "pavucontrol",      NULL,     NULL,  0,         1,          -1 },
 };
 
 /* Раскладки */
@@ -138,14 +133,13 @@ static const int resizehints = 0;
 static const int lockfullscreen = 1;
 
 static const Layout layouts[] = {
-    /* symbol  arrange function */
     { "[]=",   tile },
     { "><>",   NULL },    /* floating */
     { "[M]",   monocle },
 };
 
 /* Клавиши */
-#define MODKEY Mod4Mask   /* Super / Win */
+#define MODKEY Mod4Mask
 #define TAGKEYS(KEY,TAG) \
     { MODKEY,                       KEY, view,       {.ui = 1 << TAG} }, \
     { MODKEY|ControlMask,           KEY, toggleview, {.ui = 1 << TAG} }, \
@@ -154,11 +148,10 @@ static const Layout layouts[] = {
 
 #define SHCMD(cmd) { .v = (const char*[]){ "/bin/sh", "-c", cmd, NULL } }
 
-/* Команды */
 static char dmenumon[2] = "0";
 static const char *dmenucmd[]    = { "dmenu_run", "-m", dmenumon, "-fn", dmenufont,
     "-nb", col_gray1, "-nf", col_gray4, "-sb", col_gray2, "-sf", col_accent,
-    "-l", "20", "-x", "1400", "-y", "30", "-W", "500", NULL };
+    "-l", "20", NULL };
 static const char *termcmd[]     = { "st", NULL };
 static const char *browsercmd[]  = { "zen-browser", NULL };
 static const char *filemgrcmd[]  = { "st", "-e", "lf", NULL };
@@ -166,87 +159,83 @@ static const char *telegramcmd[] = { "telegram-desktop", NULL };
 static const char *steamcmd[]    = { "steam", NULL };
 static const char *screenshot[]  = { "scrot", "-s", "/tmp/screenshot_%Y%m%d_%H%M%S.png", NULL };
 
-/* Громкость */
 static const char *vol_up[]      = { "pactl", "set-sink-volume", "@DEFAULT_SINK@", "+5%", NULL };
 static const char *vol_down[]    = { "pactl", "set-sink-volume", "@DEFAULT_SINK@", "-5%", NULL };
 static const char *vol_mute[]    = { "pactl", "set-sink-mute",   "@DEFAULT_SINK@", "toggle", NULL };
 
-/* Яркость */
 static const char *bri_up[]      = { "brightnessctl", "set", "+10%", NULL };
 static const char *bri_down[]    = { "brightnessctl", "set", "10%-", NULL };
 
 #include <X11/XF86keysym.h>
 
 static const Key keys[] = {
-    /* modifier                 key                       function        argument */
+    /* modifier                     key                       function        argument */
 
-    /* ───── Запуск программ ───── */
-    { MODKEY,                   XK_d,                     spawn,          {.v = dmenucmd } },
-    { MODKEY,                   XK_Return,                spawn,          {.v = termcmd } },
-    { MODKEY,                   XK_w,                     spawn,          {.v = browsercmd } },
-    { MODKEY,                   XK_e,                     spawn,          {.v = filemgrcmd } },
-    { MODKEY,                   XK_t,                     spawn,          {.v = telegramcmd } },
-    { MODKEY|ShiftMask,         XK_s,                     spawn,          {.v = steamcmd } },
-    { 0,                        XK_Print,                 spawn,          {.v = screenshot } },
+    /* Запуск программ */
+    { MODKEY,                       XK_d,                     spawn,          {.v = dmenucmd } },
+    { MODKEY,                       XK_Return,                spawn,          {.v = termcmd } },
+    { MODKEY,                       XK_w,                     spawn,          {.v = browsercmd } },
+    { MODKEY,                       XK_e,                     spawn,          {.v = filemgrcmd } },
+    { MODKEY,                       XK_t,                     spawn,          {.v = telegramcmd } },
+    { MODKEY|ShiftMask,             XK_s,                     spawn,          {.v = steamcmd } },
+    { 0,                            XK_Print,                 spawn,          {.v = screenshot } },
 
-    /* ───── Громкость ───── */
-    { 0, XF86XK_AudioRaiseVolume,                        spawn,          {.v = vol_up } },
-    { 0, XF86XK_AudioLowerVolume,                        spawn,          {.v = vol_down } },
-    { 0, XF86XK_AudioMute,                               spawn,          {.v = vol_mute } },
+    /* Громкость */
+    { 0, XF86XK_AudioRaiseVolume,                            spawn,          {.v = vol_up } },
+    { 0, XF86XK_AudioLowerVolume,                            spawn,          {.v = vol_down } },
+    { 0, XF86XK_AudioMute,                                   spawn,          {.v = vol_mute } },
 
-    /* ───── Яркость ───── */
-    { 0, XF86XK_MonBrightnessUp,                         spawn,          {.v = bri_up } },
-    { 0, XF86XK_MonBrightnessDown,                       spawn,          {.v = bri_down } },
+    /* Яркость */
+    { 0, XF86XK_MonBrightnessUp,                             spawn,          {.v = bri_up } },
+    { 0, XF86XK_MonBrightnessDown,                           spawn,          {.v = bri_down } },
 
-    /* ───── Управление окнами ───── */
-    { MODKEY,                   XK_j,                     focusstack,     {.i = +1 } },
-    { MODKEY,                   XK_k,                     focusstack,     {.i = -1 } },
-    { MODKEY,                   XK_h,                     setmfact,       {.f = -0.05} },
-    { MODKEY,                   XK_l,                     setmfact,       {.f = +0.05} },
-    { MODKEY,                   XK_i,                     incnmaster,     {.i = +1 } },
-    { MODKEY|ShiftMask,         XK_i,                     incnmaster,     {.i = -1 } },
-    { MODKEY|ShiftMask,         XK_Return,                zoom,           {0} },
-    { MODKEY,                   XK_Tab,                   view,           {0} },
+    /* Управление окнами */
+    { MODKEY,                       XK_j,                     focusstack,     {.i = +1 } },
+    { MODKEY,                       XK_k,                     focusstack,     {.i = -1 } },
+    { MODKEY,                       XK_h,                     setmfact,       {.f = -0.05} },
+    { MODKEY,                       XK_l,                     setmfact,       {.f = +0.05} },
+    { MODKEY,                       XK_i,                     incnmaster,     {.i = +1 } },
+    { MODKEY|ShiftMask,             XK_i,                     incnmaster,     {.i = -1 } },
+    { MODKEY|ShiftMask,             XK_Return,                zoom,           {0} },
+    { MODKEY,                       XK_Tab,                   view,           {0} },
 
-    /* ───── Закрытие / выход ───── */
-    { MODKEY|ShiftMask,         XK_q,                     killclient,     {0} },
-    { MODKEY|ControlMask|ShiftMask, XK_q,                 quit,           {0} },
+    /* Закрытие / выход */
+    { MODKEY|ShiftMask,             XK_q,                     killclient,     {0} },
+    { MODKEY|ControlMask|ShiftMask, XK_q,                     quit,           {0} },
 
-    /* ───── Раскладки ───── */
-    { MODKEY,                   XK_f,                     setlayout,      {.v = &layouts[0]} }, /* tile */
-    { MODKEY|ShiftMask,         XK_f,                     setlayout,      {.v = &layouts[1]} }, /* float */
-    { MODKEY,                   XK_m,                     setlayout,      {.v = &layouts[2]} }, /* monocle */
-    { MODKEY,                   XK_space,                 setlayout,      {0} },
-    { MODKEY|ShiftMask,         XK_space,                 togglefloating, {0} },
+    /* Раскладки */
+    { MODKEY,                       XK_f,                     setlayout,      {.v = &layouts[0]} },
+    { MODKEY|ShiftMask,             XK_f,                     setlayout,      {.v = &layouts[1]} },
+    { MODKEY,                       XK_m,                     setlayout,      {.v = &layouts[2]} },
+    { MODKEY,                       XK_space,                 setlayout,      {0} },
+    { MODKEY|ShiftMask,             XK_space,                 togglefloating, {0} },
 
-    /* ───── Бар ───── */
-    { MODKEY,                   XK_b,                     togglebar,      {0} },
+    /* Бар */
+    { MODKEY,                       XK_b,                     togglebar,      {0} },
 
-    /* ───── Мониторы ───── */
-    { MODKEY,                   XK_comma,                 focusmon,       {.i = -1 } },
-    { MODKEY,                   XK_period,                focusmon,       {.i = +1 } },
-    { MODKEY|ShiftMask,         XK_comma,                 tagmon,         {.i = -1 } },
-    { MODKEY|ShiftMask,         XK_period,                tagmon,         {.i = +1 } },
+    /* Мониторы */
+    { MODKEY,                       XK_comma,                 focusmon,       {.i = -1 } },
+    { MODKEY,                       XK_period,                focusmon,       {.i = +1 } },
+    { MODKEY|ShiftMask,             XK_comma,                 tagmon,         {.i = -1 } },
+    { MODKEY|ShiftMask,             XK_period,                tagmon,         {.i = +1 } },
 
-    /* ───── Все теги ───── */
-    { MODKEY,                   XK_0,                     view,           {.ui = ~0 } },
-    { MODKEY|ShiftMask,         XK_0,                     tag,            {.ui = ~0 } },
+    /* Все теги */
+    { MODKEY,                       XK_0,                     view,           {.ui = ~0 } },
+    { MODKEY|ShiftMask,             XK_0,                     tag,            {.ui = ~0 } },
 
-    /* ───── Теги 1-9 ───── */
-    TAGKEYS(                    XK_1,                                     0)
-    TAGKEYS(                    XK_2,                                     1)
-    TAGKEYS(                    XK_3,                                     2)
-    TAGKEYS(                    XK_4,                                     3)
-    TAGKEYS(                    XK_5,                                     4)
-    TAGKEYS(                    XK_6,                                     5)
-    TAGKEYS(                    XK_7,                                     6)
-    TAGKEYS(                    XK_8,                                     7)
-    TAGKEYS(                    XK_9,                                     8)
+    /* Теги 1-9 */
+    TAGKEYS(                        XK_1,                                     0)
+    TAGKEYS(                        XK_2,                                     1)
+    TAGKEYS(                        XK_3,                                     2)
+    TAGKEYS(                        XK_4,                                     3)
+    TAGKEYS(                        XK_5,                                     4)
+    TAGKEYS(                        XK_6,                                     5)
+    TAGKEYS(                        XK_7,                                     6)
+    TAGKEYS(                        XK_8,                                     7)
+    TAGKEYS(                        XK_9,                                     8)
 };
 
-/* Кнопки мыши на окнах */
 static const Button buttons[] = {
-    /* click          event mask  button    function        argument */
     { ClkLtSymbol,    0,          Button1,  setlayout,      {0} },
     { ClkLtSymbol,    0,          Button3,  setlayout,      {.v = &layouts[2]} },
     { ClkWinTitle,    0,          Button2,  zoom,           {0} },
@@ -273,157 +262,23 @@ build_st() {
     cd ~/suckless
 
     if [ ! -d "st" ]; then
-        git clone https://git.suckless.org/st
+        git clone https://github.com/suckless-mirror/st.git
     fi
-
-    cat > st/config.h << 'STCONFIG'
-/* st config.h — Монохромная тема */
-
-static char *font = "JetBrains Mono:pixelsize=16:antialias=true:autohint=true";
-static int borderpx = 12;
-
-/* Terminal colors — монохром */
-static const char *colorname[] = {
-    /* 8 normal colors */
-    [0] = "#0a0a0a", /* black   */
-    [1] = "#b0b0b0", /* red     */
-    [2] = "#909090", /* green   */
-    [3] = "#c0c0c0", /* yellow  */
-    [4] = "#808080", /* blue    */
-    [5] = "#a0a0a0", /* magenta */
-    [6] = "#707070", /* cyan    */
-    [7] = "#d0d0d0", /* white   */
-
-    /* 8 bright colors */
-    [8]  = "#3a3a3a",
-    [9]  = "#e0e0e0",
-    [10] = "#b0b0b0",
-    [11] = "#ffffff",
-    [12] = "#a0a0a0",
-    [13] = "#c0c0c0",
-    [14] = "#909090",
-    [15] = "#ffffff",
-
-    [255] = 0,
-
-    /* special */
-    [256] = "#0a0a0a", /* background */
-    [257] = "#d0d0d0", /* foreground */
-    [258] = "#ffffff", /* cursor     */
-};
-
-unsigned int defaultfg = 257;
-unsigned int defaultbg = 256;
-unsigned int defaultcs = 258;
-unsigned int defaultrcs = 256;
-
-/* Misc */
-static unsigned int cols = 80;
-static unsigned int rows = 24;
-static unsigned int tabspaces = 8;
-static unsigned int defaultattr = 11;
-
-/* Terminal type */
-char *termname = "st-256color";
-
-/* Shell */
-static char *shell = "/bin/sh";
-char *utmp = NULL;
-char *scroll = NULL;
-char *stty_args = "stty raw pass8 nl -echo -iexten -cstopb 38400";
-
-/* Kerning / character bounding-box multipliers */
-static float cwscale = 1.0;
-static float chscale = 1.0;
-
-/* word delimiter string */
-wchar_t *worddelimiters = L" ";
-
-/* selection timeouts (in milliseconds) */
-static unsigned int doubleclicktimeout = 300;
-static unsigned int tripleclicktimeout = 600;
-
-/* alt screens */
-int allowaltscreen = 1;
-int allowwindowops = 0;
-
-/* draw latency range in ms - from new content/incremental
-   to
-   
- 
-idle
- 
- 
- */
-static double minlatency = 8;
-static double maxlatency = 33;
-
-/* blinking timeout (0 = off) */
-static unsigned int blinktimeout = 800;
-
-/* thickness of underline and bar cursors */
-static unsigned int cursorthickness = 2;
-
-/* bell volume.  0 = off */
-static int bellvolume = 0;
-
-/* 1: render most of the lines/blocks characters without using the font
-   0: always googlerenderchar */
-static int boxdraw = 0;
-static int boxdraw_bold = 0;
-static int boxdraw_braille = 0;
-
-/* default TERM value */
-char *termname_env = "st-256color";
-
-/* spaces per tab */
-
-/* Mouse shortcuts */
-static MouseShortcut mshortcuts[] = {
-    /* mask     button   function        argument  release */
-    { XK_ANY_MOD, Button2, selpaste, {.i = 0}, 1 },
-    { ShiftMask,  Button4, ttysend, {.s = "\033[5;2~"}, 0 },
-    { XK_ANY_MOD, Button4, ttysend, {.s = "\031"}, 0 },
-    { ShiftMask,  Button5, ttysend, {.s = "\033[6;2~"}, 0 },
-    { XK_ANY_MOD, Button5, ttysend, {.s = "\005"}, 0 },
-};
-
-/* Keyboard shortcuts */
-#define MODKEY Mod1Mask
-#define TERMMOD (ControlMask|ShiftMask)
-
-static Shortcut shortcuts[] = {
-    /* mask        keysym       function  argument */
-    { XK_ANY_MOD,  XK_Break,    sendbreak, {.i =  0} },
-    { ControlMask, XK_Print,    toggleprinter, {.i =  0} },
-    { ShiftMask,   XK_Print,    printscreen, {.i =  0} },
-    { XK_ANY_MOD,  XK_Print,    printsel, {.i =  0} },
-    { TERMMOD,     XK_Prior,    zoom,     {.f = +1} },
-    { TERMMOD,     XK_Next,     zoom,     {.f = -1} },
-    { TERMMOD,     XK_Home,     zoomreset, {.f =  0} },
-    { TERMMOD,     XK_C,        clipcopy, {.i =  0} },
-    { TERMMOD,     XK_V,        clippaste, {.i =  0} },
-    { TERMMOD,     XK_Y,        selpaste, {.i =  0} },
-    { ShiftMask,   XK_Insert,   selpaste, {.i =  0} },
-    { TERMMOD,     XK_Num_Lock, numlock,  {.i =  0} },
-};
-
-/* Key binding for font attributes */
-static uint forcemousemod = ShiftMask;
-STCONFIG
 
     cd st
-    # st может не скомпилироваться с кастомным config.h из-за несовместимости
-    # Пробуем, если не получается — используем дефолт
-    if ! sudo make clean install 2>/dev/null; then
-        warn "Кастомный config.h для st не подошёл, собираем с дефолтом + правка цветов"
-        git checkout -- config.h
-        # Правим цвета в дефолтном config.def.h
-        sed -i 's/unsigned int defaultfg = 7;/unsigned int defaultfg = 7;/' config.def.h
-        sed -i 's/\*bg = "#......"/\*bg = "#0a0a0a"/' config.def.h 2>/dev/null || true
-        cp config.def.h config.h
-        sudo make clean install
-    fi
+
+    # Правим дефолтный config.def.h — меняем шрифт и цвета
+    sed -i 's/static char \*font = .*/static char *font = "JetBrains Mono:pixelsize=16:antialias=true:autohint=true";/' config.def.h
+
+    # Чёрный фон
+    sed -i 's/\[defaultbg\] = 258/[defaultbg] = 0/' config.def.h 2>/dev/null || true
+    sed -i 's/\[defaultfg\] = 259/[defaultfg] = 7/' config.def.h 2>/dev/null || true
+
+    # Увеличиваем внутренний отступ
+    sed -i 's/static int borderpx.*/static int borderpx = 12;/' config.def.h
+
+    cp config.def.h config.h
+    sudo make clean install
     log "st установлен"
     cd ~/suckless
 }
@@ -434,46 +289,19 @@ build_dmenu() {
     cd ~/suckless
 
     if [ ! -d "dmenu" ]; then
-        git clone https://git.suckless.org/dmenu
+        git clone https://github.com/suckless-mirror/dmenu.git
     fi
 
     cd dmenu
 
-    # Патчим config.def.h для монохромной темы и вертикального меню справа
-    cat > config.def.h << 'DMENUCONFIG'
-/* dmenu config — монохром, вертикальное меню */
+    # Правим дефолтный config.def.h — монохромные цвета и вертикальный список
+    sed -i 's/static const char \*fonts\[\] = {.*/static const char *fonts[] = { "JetBrains Mono:size=11" };/' config.def.h
+    sed -i 's/\[SchemeNorm\] = .*/[SchemeNorm] = { "#b0b0b0", "#0a0a0a" },/' config.def.h
+    sed -i 's/\[SchemeSel\] = .*/[SchemeSel]  = { "#ffffff", "#1a1a1a" },/' config.def.h
+    sed -i 's/\[SchemeOut\] = .*/[SchemeOut]  = { "#000000", "#3a3a3a" },/' config.def.h
 
-static int topbar = 1;
-
-/* -fn option overrides fonts[0]; default X11 font or font set */
-static const char *fonts[] = {
-    "JetBrains Mono:size=11"
-};
-
-static const char *prompt = "run:";
-
-/* Монохромные цвета */
-static const char *colors[SchemeLast][2] = {
-    /*                fg         bg       */
-    [SchemeNorm] = { "#b0b0b0", "#0a0a0a" },
-    [SchemeSel]  = { "#ffffff", "#1a1a1a" },
-    [SchemeOut]  = { "#000000", "#3a3a3a" },
-};
-
-/* -l option; if nonzero, dmenu uses vertical list with given number of lines */
-static unsigned int lines = 0;
-static unsigned int lineheight = 0;
-static unsigned int min_lineheight = 8;
-
-/*
- * Characters not considered part of a word while deleting words
- * for example: " gy;!·\"#$%&/()=+_-,.:;*^`[]{}|"
- */
-static const char worddelimiters[] = " ";
-
-/* Size of the window border */
-static unsigned int border_width = 2;
-DMENUCONFIG
+    # Вертикальный список на 20 строк
+    sed -i 's/static unsigned int lines.*/static unsigned int lines = 20;/' config.def.h
 
     cp config.def.h config.h
     sudo make clean install
@@ -490,21 +318,19 @@ create_statusbar() {
 # DWM Status Bar — Монохромный
 
 while true; do
-    # Дата и время
     DATE=$(date +'%a %d %b')
     TIME=$(date +'%H:%M')
 
-    # Батарея (если есть)
+    # Батарея
     BAT=""
     if [ -f /sys/class/power_supply/BAT0/capacity ]; then
         BAT_CAP=$(cat /sys/class/power_supply/BAT0/capacity)
         BAT_STATUS=$(cat /sys/class/power_supply/BAT0/status)
         if [ "$BAT_STATUS" = "Charging" ]; then
-            BAT="CHR:${BAT_CAP}%"
+            BAT=" | CHR:${BAT_CAP}%"
         else
-            BAT="BAT:${BAT_CAP}%"
+            BAT=" | BAT:${BAT_CAP}%"
         fi
-        BAT=" | $BAT"
     fi
 
     # Громкость
@@ -539,16 +365,16 @@ create_xinitrc() {
     cat > ~/.xinitrc << 'XINITRC'
 #!/bin/sh
 
-# Раскладка клавиатуры (US + RU, переключение по Alt+Shift)
+# Раскладка клавиатуры (US + RU, переключение Alt+Shift)
 setxkbmap -layout us,ru -option grp:alt_shift_toggle &
 
 # Курсор
 xsetroot -cursor_name left_ptr &
 
-# Композитинг (тени, прозрачность)
+# Композитинг
 picom --config ~/.config/picom/picom.conf -b 2>/dev/null &
 
-# Обои — сплошной чёрный
+# Фон — сплошной чёрный (замените на feh --bg-fill /путь/к/картинке.jpg для обоев)
 xsetroot -solid "#0a0a0a" &
 
 # Уведомления
@@ -574,12 +400,8 @@ create_picom_config() {
 
     mkdir -p ~/.config/picom
     cat > ~/.config/picom/picom.conf << 'PICOM'
-# Picom — минимальный конфиг для DWM
-
-# Backend
 backend = "xrender";
 
-# Тени
 shadow = true;
 shadow-radius = 12;
 shadow-offset-x = -7;
@@ -593,24 +415,18 @@ shadow-exclude = [
     "_GTK_FRAME_EXTENTS@:c"
 ];
 
-# Прозрачность
 inactive-opacity = 0.95;
 active-opacity = 1.0;
 frame-opacity = 1.0;
 
-# Фейдинг
 fading = true;
 fade-in-step = 0.06;
 fade-out-step = 0.06;
 fade-delta = 5;
 
-# Corners
 corner-radius = 0;
-
-# VSync
 vsync = true;
 
-# Исключения
 focus-exclude = [
     "class_g = 'Steam'",
     "class_g = 'steam'",
@@ -675,22 +491,17 @@ DUNST
     log "Dunst настроен"
 }
 
-# ===================== LF (файловый менеджер) =====================
+# ===================== LF =====================
 create_lf_config() {
     log "Создание конфига lf..."
 
     mkdir -p ~/.config/lf
     cat > ~/.config/lf/lfrc << 'LFRC'
-# LF File Manager Config
-
 set ratios 1:2:3
 set hidden true
 set ignorecase true
 set icons true
-set previewer ~/.config/lf/preview
-set cleaner ~/.config/lf/cleaner
 
-# Бинды
 map <enter> open
 map D delete
 map x cut
@@ -701,7 +512,6 @@ map . set hidden!
 map R reload
 map dd delete
 
-# Открытие файлов
 cmd open ${{
     case $(file --mime-type "$f" -bL) in
         text/*|application/json) $EDITOR "$f";;
@@ -728,24 +538,6 @@ map a mkdir
 map A mkfile
 LFRC
 
-    cat > ~/.config/lf/preview << 'PREVIEW'
-#!/bin/sh
-case "$1" in
-    *.tar*) tar tf "$1";;
-    *.zip) unzip -l "$1";;
-    *.rar) unrar l "$1";;
-    *.7z) 7z l "$1";;
-    *.pdf) pdftotext "$1" -;;
-    *) head -100 "$1";;
-esac
-PREVIEW
-
-    cat > ~/.config/lf/cleaner << 'CLEANER'
-#!/bin/sh
-CLEANER
-
-    chmod +x ~/.config/lf/preview
-    chmod +x ~/.config/lf/cleaner
     log "lf настроен"
 }
 
@@ -795,51 +587,11 @@ GTK2
     log "GTK тема настроена"
 }
 
-# ===================== СКРИПТ ВЕРТИКАЛЬНОГО DMENU =====================
-create_dmenu_right() {
-    log "Создание скрипта вертикального dmenu справа..."
-
-    mkdir -p ~/bin
-    cat > ~/bin/dmenu-right << 'DMENURIGHT'
-#!/bin/sh
-# Вертикальный dmenu справа
-
-# Получаем размер экрана
-SCREEN_W=$(xrandr | grep '\*' | head -1 | awk '{print $1}' | cut -d'x' -f1)
-
-# Ширина меню
-MENU_W=400
-
-# Позиция X (справа)
-POS_X=$((SCREEN_W - MENU_W - 10))
-
-dmenu_run \
-    -l 20 \
-    -fn "JetBrains Mono:size=11" \
-    -nb "#0a0a0a" \
-    -nf "#b0b0b0" \
-    -sb "#1a1a1a" \
-    -sf "#ffffff" \
-    -x "$POS_X" \
-    -y 30 \
-    -W "$MENU_W" \
-    -p "run:"
-DMENURIGHT
-
-    chmod +x ~/bin/dmenu-right
-
-    # Добавляем ~/bin в PATH
-    if ! grep -q 'export PATH="$HOME/bin:$PATH"' ~/.bashrc; then
-        echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc
-    fi
-
-    log "dmenu-right создан в ~/bin/"
-}
-
 # ===================== СЕССИЯ DWM =====================
 create_session() {
-    log "Создание файла сессии для DM..."
+    log "Создание файла сессии для Display Manager..."
 
+    sudo mkdir -p /usr/share/xsessions
     sudo tee /usr/share/xsessions/dwm.desktop > /dev/null << 'SESSION'
 [Desktop Entry]
 Encoding=UTF-8
@@ -863,7 +615,6 @@ create_cheatsheet() {
 ╠══════════════════════════════════════════════════════════════╣
 ║                                                              ║
 ║  ЗАПУСК ПРОГРАММ                                             ║
-║  ─────────────────                                           ║
 ║  Super + Enter        — Терминал (st)                        ║
 ║  Super + D            — Меню запуска (dmenu)                 ║
 ║  Super + W            — Zen Browser                          ║
@@ -873,7 +624,6 @@ create_cheatsheet() {
 ║  Print Screen         — Скриншот (выделение)                 ║
 ║                                                              ║
 ║  УПРАВЛЕНИЕ ОКНАМИ                                           ║
-║  ─────────────────                                           ║
 ║  Super + J/K          — Переключение между окнами            ║
 ║  Super + H/L          — Изменение размера master             ║
 ║  Super + Shift+Enter  — Сделать master                       ║
@@ -885,32 +635,28 @@ create_cheatsheet() {
 ║  Super + B            — Показать/скрыть бар                  ║
 ║                                                              ║
 ║  РАБОЧИЕ СТОЛЫ                                               ║
-║  ─────────────────                                           ║
 ║  Super + 1-9          — Переключение на тег                  ║
 ║  Super + Shift + 1-9  — Переместить окно на тег              ║
 ║  Super + 0            — Показать все теги                    ║
-║  Super + Tab           — Предыдущий тег                      ║
+║  Super + Tab          — Предыдущий тег                       ║
 ║                                                              ║
 ║  МОНИТОРЫ                                                    ║
-║  ─────────────────                                           ║
 ║  Super + ,/.          — Переключение монитора                ║
 ║  Super + Shift + ,/.  — Переместить окно на монитор          ║
 ║                                                              ║
 ║  ЗВУК / ЯРКОСТЬ                                             ║
-║  ─────────────────                                           ║
 ║  Fn + Volume Up/Down  — Громкость                            ║
 ║  Fn + Mute            — Без звука                            ║
 ║  Fn + Brightness      — Яркость                              ║
 ║                                                              ║
 ║  СИСТЕМА                                                     ║
-║  ─────────────────                                           ║
 ║  Ctrl+Super+Shift+Q   — Выход из DWM                        ║
-║  Alt + Shift           — Переключение раскладки (US/RU)      ║
+║  Alt + Shift          — Переключение раскладки (US/RU)       ║
 ║                                                              ║
 ╚══════════════════════════════════════════════════════════════╝
 CHEAT
 
-    log "Шпаргалка сохранена в ~/dwm-keybinds.txt"
+    log "Шпаргалка: ~/dwm-keybinds.txt"
 }
 
 # ===================== MAIN =====================
@@ -918,10 +664,8 @@ main() {
     echo ""
     echo -e "${CYAN}╔══════════════════════════════════════════════╗${NC}"
     echo -e "${CYAN}║   DWM Monochrome Setup — CachyOS / Arch     ║${NC}"
+    echo -e "${CYAN}║   Версия 2.0 — все исправления              ║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════╝${NC}"
-    echo ""
-
-    info "Начинаем установку..."
     echo ""
 
     install_packages
@@ -938,7 +682,6 @@ main() {
     create_dunst_config
     create_lf_config
     create_gtk_theme
-    create_dmenu_right
     create_session
     create_cheatsheet
 
@@ -947,34 +690,21 @@ main() {
     echo -e "${GREEN}║          УСТАНОВКА ЗАВЕРШЕНА!                ║${NC}"
     echo -e "${GREEN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
-    info "Что установлено:"
-    echo "  • DWM (window manager)"
-    echo "  • st (терминал)"
-    echo "  • dmenu (лаунчер)"
+    info "Установлено:"
+    echo "  • DWM, st, dmenu (из исходников ~/suckless/)"
     echo "  • lf (файловый менеджер)"
-    echo "  • Zen Browser"
-    echo "  • Telegram Desktop"
-    echo "  • Steam + Proton"
-    echo "  • GNOME Disks"
-    echo "  • picom, dunst, nitrogen"
-    echo ""
-    info "Конфиги:"
-    echo "  • DWM:    ~/suckless/dwm/config.h"
-    echo "  • st:     ~/suckless/st/config.h"
-    echo "  • dmenu:  ~/suckless/dmenu/config.def.h"
-    echo "  • picom:  ~/.config/picom/picom.conf"
-    echo "  • dunst:  ~/.config/dunst/dunstrc"
-    echo "  • lf:     ~/.config/lf/lfrc"
+    echo "  • Zen Browser, Telegram, Steam + Proton"
+    echo "  • GNOME Disks, picom, dunst"
     echo ""
     info "Запуск:"
-    echo "  Если используете Display Manager — выберите сессию 'DWM'"
-    echo "  Если startx — просто запустите: startx"
+    echo "  Display Manager → выберите сессию 'DWM'"
+    echo "  Или через консоль: startx"
     echo ""
     info "Бинды: cat ~/dwm-keybinds.txt"
     echo ""
-    warn "ЗАМЕЧАНИЕ: dmenu -x/-y/-W флаги требуют патча 'dmenu-xyw'."
-    warn "Без этого патча dmenu откроется стандартно сверху на весь экран."
-    warn "Для вертикального меню справа используйте: dmenu-right (~/bin/dmenu-right)"
+    info "Изменить настройки DWM:"
+    echo "  nano ~/suckless/dwm/config.h"
+    echo "  cd ~/suckless/dwm && sudo make clean install"
     echo ""
 }
 
