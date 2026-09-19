@@ -1,6 +1,6 @@
 #!/bin/bash
 # install.sh — Полная установка DWM окружения на CachyOS/Arch
-# Версия 8.0 — Alacritty вместо st, xidlehook вместо xautolock
+# Версия 9.0 — Скриншоты, трей, исправление slock и Telegram
 
 set -e
 
@@ -40,6 +40,9 @@ install_packages() {
         feh scrot brightnessctl \
         polkit lxsession \
         networkmanager network-manager-applet \
+        blueman \
+        stalonetray \
+        libnotify \
         openssh bc
 
     log "Включение NetworkManager..."
@@ -88,8 +91,8 @@ install_aur_packages() {
     warn "Zen Browser не найден, установите позже вручную."
 
     info "Telegram..."
-    yay -S --needed --noconfirm telegram-desktop || \
-        sudo pacman -S --needed --noconfirm telegram-desktop
+    sudo pacman -S --needed --noconfirm telegram-desktop || \
+        yay -S --needed --noconfirm telegram-desktop
 
     info "Proton..."
     yay -S --needed --noconfirm proton-cachyos-bin 2>/dev/null || \
@@ -141,6 +144,87 @@ download_tool() {
     err "Не удалось загрузить $name!"
 }
 
+# ===================== СКРИПТ СКРИНШОТОВ =====================
+create_screenshot_script() {
+    log "Создание скрипта скриншотов..."
+
+    mkdir -p ~/bin
+    mkdir -p ~/Pictures/Screenshots
+
+    cat > ~/bin/screenshot << 'SCREENSHOT'
+#!/bin/bash
+# Скриншот выделенной области с сохранением в ~/Pictures/Screenshots/
+
+SCREENSHOT_DIR="$HOME/Pictures/Screenshots"
+mkdir -p "$SCREENSHOT_DIR"
+
+FILENAME="screenshot_$(date +'%Y-%m-%d_%H-%M-%S').png"
+FILEPATH="$SCREENSHOT_DIR/$FILENAME"
+
+# Делаем скриншот выделенной области
+scrot -s "$FILEPATH" 2>/dev/null
+
+if [ -f "$FILEPATH" ]; then
+    # Копируем в буфер обмена
+    xclip -selection clipboard -t image/png -i "$FILEPATH" 2>/dev/null
+
+    # Уведомление
+    notify-send "Скриншот сохранён" "$FILENAME\nСкопирован в буфер обмена" \
+        -i "$FILEPATH" -t 3000 2>/dev/null
+fi
+SCREENSHOT
+
+    cat > ~/bin/screenshot-full << 'SCREENSHOTFULL'
+#!/bin/bash
+# Скриншот всего экрана
+
+SCREENSHOT_DIR="$HOME/Pictures/Screenshots"
+mkdir -p "$SCREENSHOT_DIR"
+
+FILENAME="screenshot_$(date +'%Y-%m-%d_%H-%M-%S')_full.png"
+FILEPATH="$SCREENSHOT_DIR/$FILENAME"
+
+scrot "$FILEPATH" 2>/dev/null
+
+if [ -f "$FILEPATH" ]; then
+    xclip -selection clipboard -t image/png -i "$FILEPATH" 2>/dev/null
+    notify-send "Скриншот сохранён" "$FILENAME\nСкопирован в буфер обмена" \
+        -i "$FILEPATH" -t 3000 2>/dev/null
+fi
+SCREENSHOTFULL
+
+    chmod +x ~/bin/screenshot ~/bin/screenshot-full
+    log "Скриншоты будут в ~/Pictures/Screenshots/"
+}
+
+# ===================== СКРИПТ ЗАПУСКА TELEGRAM =====================
+create_telegram_launcher() {
+    log "Создание универсального запускателя Telegram..."
+
+    mkdir -p ~/bin
+
+    cat > ~/bin/telegram << 'TELEGRAM'
+#!/bin/bash
+# Универсальный запуск Telegram (проверяет разные варианты бинарей)
+
+if command -v telegram-desktop &>/dev/null; then
+    exec telegram-desktop "$@"
+elif command -v Telegram &>/dev/null; then
+    exec Telegram "$@"
+elif [ -x "/usr/bin/telegram-desktop" ]; then
+    exec /usr/bin/telegram-desktop "$@"
+elif [ -x "/opt/telegram-desktop/Telegram" ]; then
+    exec /opt/telegram-desktop/Telegram "$@"
+else
+    notify-send "Telegram" "Telegram не установлен!" -u critical
+    exit 1
+fi
+TELEGRAM
+
+    chmod +x ~/bin/telegram
+    log "Telegram запускатель создан"
+}
+
 # ===================== СБОРКА DWM =====================
 build_dwm() {
     download_tool "dwm" \
@@ -152,7 +236,7 @@ build_dwm() {
 
     cat > config.h << 'DWMCONFIG'
 /* ============================================================
- *  DWM config.h — Тёплый монохром + Alacritty
+ *  DWM config.h — Тёплый монохром v9
  * ============================================================ */
 
 static const unsigned int borderpx  = 2;
@@ -183,8 +267,10 @@ static const char *tags[] = { "I", "II", "III", "IV", "V", "VI", "VII", "VIII", 
 static const Rule rules[] = {
     { "Steam",            NULL, NULL, 1 << 3, 1, -1 },
     { "TelegramDesktop",  NULL, NULL, 1 << 2, 0, -1 },
+    { "telegram-desktop", NULL, NULL, 1 << 2, 0, -1 },
     { "Gimp",             NULL, NULL, 0,      1, -1 },
     { "pavucontrol",      NULL, NULL, 0,      1, -1 },
+    { "stalonetray",      NULL, NULL, 0,      1, -1 },
 };
 
 static const float mfact     = 0.55;
@@ -211,13 +297,14 @@ static char dmenumon[2] = "0";
 static const char *dmenucmd[]    = { "dmenu_run", "-m", dmenumon, "-fn", dmenufont,
     "-nb", col_bg, "-nf", col_fg, "-sb", col_bg_sel, "-sf", col_accent,
     "-l", "20", NULL };
-static const char *termcmd[]     = { "alacritty", NULL };
-static const char *browsercmd[]  = { "zen-browser", NULL };
-static const char *filemgrcmd[]  = { "alacritty", "-e", "lf", NULL };
-static const char *telegramcmd[] = { "telegram-desktop", NULL };
-static const char *steamcmd[]    = { "steam", NULL };
-static const char *screenshot[]  = { "scrot", "-s", "/tmp/screenshot_%Y%m%d_%H%M%S.png", NULL };
-static const char *lockcmd[]     = { "slock", NULL };
+static const char *termcmd[]         = { "alacritty", NULL };
+static const char *browsercmd[]      = { "zen-browser", NULL };
+static const char *filemgrcmd[]      = { "alacritty", "-e", "lf", NULL };
+static const char *telegramcmd[]     = { "sh", "-c", "$HOME/bin/telegram", NULL };
+static const char *steamcmd[]        = { "steam", NULL };
+static const char *screenshot[]      = { "sh", "-c", "$HOME/bin/screenshot", NULL };
+static const char *screenshotfull[]  = { "sh", "-c", "$HOME/bin/screenshot-full", NULL };
+static const char *lockcmd[]         = { "slock", NULL };
 
 static const char *vol_up[]   = { "pactl", "set-sink-volume", "@DEFAULT_SINK@", "+5%", NULL };
 static const char *vol_down[] = { "pactl", "set-sink-volume", "@DEFAULT_SINK@", "-5%", NULL };
@@ -238,6 +325,7 @@ static const Key keys[] = {
     { MODKEY|ShiftMask,             XK_s,      spawn,          {.v = steamcmd } },
     { MODKEY|ShiftMask,             XK_l,      spawn,          {.v = lockcmd } },
     { 0,                            XK_Print,  spawn,          {.v = screenshot } },
+    { ShiftMask,                    XK_Print,  spawn,          {.v = screenshotfull } },
 
     /* ─── Громкость / яркость ─── */
     { 0, XF86XK_AudioRaiseVolume, spawn, {.v = vol_up } },
@@ -260,12 +348,12 @@ static const Key keys[] = {
     { MODKEY|ShiftMask,             XK_q, killclient, {0} },
     { MODKEY|ControlMask|ShiftMask, XK_q, quit,       {0} },
 
-    /* ─── Раскладки окон (БЕЗ Super+Space) ─── */
-    { MODKEY,             XK_semicolon, setlayout, {.v = &layouts[0]} },  /* tile     */
-    { MODKEY|ShiftMask,   XK_semicolon, setlayout, {.v = &layouts[1]} },  /* float    */
-    { MODKEY,             XK_m,         setlayout, {.v = &layouts[2]} },  /* monocle  */
-    { MODKEY,             XK_n,         setlayout, {0} },                 /* toggle   */
-    { MODKEY|ShiftMask,   XK_n,         togglefloating, {0} },           /* float win */
+    /* ─── Раскладки окон ─── */
+    { MODKEY,             XK_semicolon, setlayout, {.v = &layouts[0]} },
+    { MODKEY|ShiftMask,   XK_semicolon, setlayout, {.v = &layouts[1]} },
+    { MODKEY,             XK_m,         setlayout, {.v = &layouts[2]} },
+    { MODKEY,             XK_n,         setlayout, {0} },
+    { MODKEY|ShiftMask,   XK_n,         togglefloating, {0} },
 
     /* ─── Бар ─── */
     { MODKEY,           XK_b,      togglebar, {0} },
@@ -347,8 +435,9 @@ build_slock() {
     cd ~/suckless/slock
 
     cat > config.h << 'SLOCKCONFIG'
+/* Пользователь и группа */
 static const char *user  = "nobody";
-static const char *group = "nogroup";
+static const char *group = "nobody";
 
 static const char *colorname[NUMCOLS] = {
 	[INIT] =   "#0c0b0a",
@@ -360,21 +449,27 @@ static const int failonclear = 1;
 SLOCKCONFIG
 
     sudo make clean install
-    log "slock установлен!"
+
+    # КРИТИЧНО! Устанавливаем SUID-бит, иначе slock не сможет проверить пароль
+    sudo chmod u+s /usr/local/bin/slock
+
+    # Проверяем
+    if [ -u /usr/local/bin/slock ]; then
+        log "slock установлен с правильными SUID-правами!"
+    else
+        warn "SUID-бит не установлен! Установите вручную: sudo chmod u+s /usr/local/bin/slock"
+    fi
+
     cd ~/suckless
 }
 
-# ===================== ALACRITTY (ТЁПЛЫЙ МОНОХРОМ) =====================
+# ===================== ALACRITTY =====================
 create_alacritty_config() {
     log "Создание конфига Alacritty..."
 
     mkdir -p ~/.config/alacritty
 
     cat > ~/.config/alacritty/alacritty.toml << 'ALACRITTY'
-# ============================================================
-#  Alacritty — Тёплый монохром
-# ============================================================
-
 [env]
 TERM = "xterm-256color"
 
@@ -402,8 +497,6 @@ style = "Bold"
 [font.italic]
 family = "JetBrains Mono"
 style = "Italic"
-
-# ─── Тёплая монохромная палитра ───
 
 [colors.primary]
 background = "#0c0b0a"
@@ -459,8 +552,6 @@ magenta = "#6a6258"
 cyan    = "#3a3632"
 white   = "#8a8278"
 
-# ─── Клавиши ───
-
 [keyboard]
 bindings = [
     { key = "V",        mods = "Control|Shift", action = "Paste" },
@@ -483,6 +574,38 @@ hide_when_typing = true
 ALACRITTY
 
     log "Alacritty настроен"
+}
+
+# ===================== STALONETRAY (СИСТЕМНЫЙ ТРЕЙ) =====================
+create_tray_config() {
+    log "Создание конфига трея (stalonetray)..."
+
+    cat > ~/.stalonetrayrc << 'TRAY'
+# Stalonetray — системный трей для DWM
+
+# Позиция в правом верхнем углу
+geometry 1x1-0+0
+sticky true
+window_type dock
+window_layer top
+
+# Внешний вид
+background "#0c0b0a"
+kludges force_icons_size
+icon_gravity NE
+icon_size 18
+slot_size 24
+grow_gravity NE
+
+# Границы
+window_strut auto
+skip_taskbar true
+
+# Максимальная ширина
+max_geometry 10x1-0+0
+TRAY
+
+    log "Stalonetray настроен"
 }
 
 # ===================== ОТКЛЮЧЕНИЕ АКСЕЛЕРАЦИИ МЫШИ =====================
@@ -619,7 +742,8 @@ while true; do
     RAM=$(free -h | awk '/Mem:/ {print $3"/"$2}')
     CPU=$(top -bn1 | grep "Cpu(s)" | awk '{print int($2+$4)}')
 
-    xsetroot -name " CPU:${CPU}% | RAM:${RAM} | ${VOL}${BAT} | ${DATE} ${TIME} "
+    # Отступ справа под трей (примерно 200px = ~15 пробелов)
+    xsetroot -name " CPU:${CPU}% | RAM:${RAM} | ${VOL}${BAT} | ${DATE} ${TIME}                     "
     sleep 2
 done
 STATUSBAR
@@ -633,9 +757,7 @@ create_xinitrc() {
 
     cat > ~/.xinitrc << 'XINITRC'
 #!/bin/sh
-
-# Клавиатура
-setxkbmap -layout us,ru -option grp:alt_shift_toggle &
+# ─── Системные раскладки клавиатуры настроены в системе, не трогаем ───
 
 # Курсор
 xsetroot -cursor_name left_ptr &
@@ -651,11 +773,21 @@ done &
 picom --config ~/.config/picom/picom.conf -b 2>/dev/null &
 xsetroot -solid "#0c0b0a" &
 
-# Уведомления и сессия
+# Уведомления и D-Bus / polkit
 dunst &
 lxsession &
 
-# Автоблокировка через 10 минут (xidlehook)
+# ─── СИСТЕМНЫЙ ТРЕЙ ───
+sleep 2
+stalonetray &
+
+# ─── ИКОНКИ В ТРЕЕ ───
+sleep 3
+nm-applet &                          # Wi-Fi / сеть
+blueman-applet &                     # Bluetooth
+pasystray 2>/dev/null &              # Звук (если установлен)
+
+# ─── АВТОБЛОКИРОВКА ───
 if command -v xidlehook &>/dev/null; then
     xidlehook \
         --not-when-fullscreen \
@@ -663,7 +795,7 @@ if command -v xidlehook &>/dev/null; then
         --timer 600 'slock' '' &
 fi
 
-# Статус-бар и ночной режим
+# ─── СТАТУС-БАР И НОЧНОЙ РЕЖИМ ───
 ~/suckless/dwm-statusbar.sh &
 ~/bin/nightshift &
 
@@ -685,6 +817,11 @@ shadow-offset-x = -7;
 shadow-offset-y = -7;
 shadow-opacity = 0.6;
 shadow-color = "#0c0b0a";
+
+shadow-exclude = [
+    "class_g = 'stalonetray'",
+    "name = 'stalonetray'"
+];
 
 inactive-opacity = 0.95;
 active-opacity = 1.0;
@@ -801,55 +938,63 @@ SESSION
 create_cheatsheet() {
     cat > ~/dwm-keybinds.txt << 'CHEAT'
 ╔══════════════════════════════════════════════════════════════╗
-║                    DWM KEYBINDINGS v8                        ║
+║                    DWM KEYBINDINGS v9                        ║
 ╠══════════════════════════════════════════════════════════════╣
-║                                                              ║
-║  ЗАПУСК ПРОГРАММ                                             ║
+║  ЗАПУСК                                                      ║
 ║  Super + Enter        — Терминал (Alacritty)                 ║
-║  Super + D            — Меню запуска (dmenu)                 ║
+║  Super + D            — dmenu                                ║
 ║  Super + W            — Zen Browser                          ║
-║  Super + E            — Файловый менеджер (lf)               ║
+║  Super + E            — Файловый менеджер                    ║
 ║  Super + T            — Telegram                             ║
 ║  Super + Shift + S    — Steam                                ║
-║  Print Screen         — Скриншот                             ║
+║  Print Screen         — Скриншот области                     ║
+║  Shift + Print        — Скриншот всего экрана                ║
 ║                                                              ║
-║  БЛОКИРОВКА ЭКРАНА                                           ║
-║  Super + Shift + L    — Заблокировать (slock)                ║
-║  * Автоблокировка через 10 мин (xidlehook)                   ║
+║  БЛОКИРОВКА                                                  ║
+║  Super + Shift + L    — Заблокировать                        ║
+║  Автоблокировка       — Через 10 минут простоя               ║
 ║                                                              ║
-║  УПРАВЛЕНИЕ ОКНАМИ                                           ║
-║  Super + J/K          — Переключение между окнами            ║
-║  Super + H/L          — Изменение размера master             ║
+║  ОКНА                                                        ║
+║  Super + J/K          — Фокус                                ║
+║  Super + H/L          — Размер master                        ║
 ║  Super + Shift+Enter  — Сделать master                       ║
-║  Super + Shift + Q    — Закрыть окно                         ║
-║                                                              ║
-║  РАСКЛАДКИ ОКОН                                              ║
-║  Super + ;            — Tile (плитка)                        ║
-║  Super + Shift + ;    — Float (плавающие)                    ║
-║  Super + M            — Monocle (одно окно)                  ║
+║  Super + Shift + Q    — Закрыть                              ║
+║  Super + ;            — Tile   |  Super + Shift + ; = Float  ║
+║  Super + M            — Monocle                              ║
 ║  Super + N            — Переключить раскладку                ║
-║  Super + Shift + N    — Сделать окно плавающим               ║
+║  Super + Shift + N    — Плавающее окно                       ║
+║  Super + B            — Скрыть панель                        ║
 ║                                                              ║
-║  Super + B            — Скрыть/показать панель               ║
+║  ТЕГИ (рабочие столы)                                        ║
+║  Super + 1..9         — Переключиться                        ║
+║  Super + Shift + 1..9 — Перенести окно                       ║
 ║                                                              ║
-║  РАБОЧИЕ СТОЛЫ                                               ║
-║  Super + 1-9          — Переключить                          ║
-║  Super + Shift + 1-9  — Перенести окно                       ║
-║                                                              ║
-║  ТЕРМИНАЛ (Alacritty)                                        ║
-║  Shift + PageUp/Down  — Скролл                               ║
-║  Ctrl + Shift + C     — Копировать                           ║
-║  Ctrl + Shift + V     — Вставить                             ║
-║  Ctrl + Shift + F     — Поиск                                ║
-║  Ctrl + +/-/0         — Размер шрифта                        ║
-║                                                              ║
-║  СИСТЕМА                                                     ║
-║  Ctrl+Super+Shift+Q   — Выход из DWM                         ║
-║  Alt + Shift          — Смена языка (US/RU)                  ║
-║  nightshift-reset     — Сбросить цвет экрана                 ║
-║                                                              ║
+║  ВЫХОД                                                       ║
+║  Ctrl+Super+Shift+Q   — Выйти из DWM                         ║
 ╚══════════════════════════════════════════════════════════════╝
 CHEAT
+}
+
+# ===================== ПРОВЕРКА SLOCK =====================
+verify_slock() {
+    log "Проверка блокировщика slock..."
+
+    if [ ! -f /usr/local/bin/slock ]; then
+        warn "slock не найден в /usr/local/bin/!"
+        return
+    fi
+
+    if [ -u /usr/local/bin/slock ]; then
+        log "✓ slock имеет SUID-бит — блокировка будет работать"
+    else
+        warn "✗ SUID-бит отсутствует, устанавливаю..."
+        sudo chmod u+s /usr/local/bin/slock
+        if [ -u /usr/local/bin/slock ]; then
+            log "✓ SUID установлен"
+        else
+            err "Не удалось установить SUID! Выполните вручную: sudo chmod u+s /usr/local/bin/slock"
+        fi
+    fi
 }
 
 # ===================== MAIN =====================
@@ -857,7 +1002,7 @@ main() {
     echo ""
     echo -e "${CYAN}╔══════════════════════════════════════════════╗${NC}"
     echo -e "${CYAN}║   DWM Warm Monochrome — CachyOS / Arch      ║${NC}"
-    echo -e "${CYAN}║   v8.0  Alacritty · xidlehook · Slock       ║${NC}"
+    echo -e "${CYAN}║   v9.0  Трей · Скриншоты · Исправления      ║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
 
@@ -868,8 +1013,12 @@ main() {
     build_dwm
     build_dmenu
     build_slock
+    verify_slock
 
+    create_screenshot_script
+    create_telegram_launcher
     create_alacritty_config
+    create_tray_config
     create_mouse_config
     create_nightshift
     create_statusbar
@@ -886,11 +1035,17 @@ main() {
     echo -e "${GREEN}║          УСТАНОВКА ЗАВЕРШЕНА!                ║${NC}"
     echo -e "${GREEN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
-    info "Что нового в v8.0:"
-    echo "  • Alacritty вместо st (скролл, поиск, GPU)"
-    echo "  • xidlehook вместо xautolock"
-    echo "  • Super+Space больше не занят"
-    echo "  • Super+; / Super+N — раскладки окон"
+    info "Что нового в v9.0:"
+    echo "  ✓ Скриншоты → ~/Pictures/Screenshots/"
+    echo "  ✓ Print Screen — область, Shift+Print — весь экран"
+    echo "  ✓ Скриншоты копируются в буфер обмена автоматически"
+    echo "  ✓ slock: SUID-бит установлен (блокировка работает)"
+    echo "  ✓ Telegram — универсальный запускатель ~/bin/telegram"
+    echo "  ✓ Системный трей: stalonetray + nm-applet + blueman"
+    echo "  ✓ Раскладка клавиатуры — не трогаем системную настройку"
+    echo ""
+    info "Проверьте блокировку сейчас: slock"
+    info "Проверьте Telegram: ~/bin/telegram"
     echo ""
     info "Запуск: перезагрузите ПК → выберите 'DWM'"
     echo ""
