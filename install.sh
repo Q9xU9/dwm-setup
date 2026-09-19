@@ -1,10 +1,10 @@
 #!/bin/bash
 # install.sh — Полная установка DWM окружения на CachyOS/Arch
-# Версия 5.1 — Исправлена компиляция dmenu (прямая запись config.h)
+# Версия 7.1 — Добавлен умный и быстрый установщик yay (CachyOS / Arch)
 
 set -e
 
-# Полностью отключаем любые запросы паролей от Git в терминале
+# Отключаем запросы паролей от Git в терминале
 export GIT_TERMINAL_PROMPT=0
 export GIT_ASKPASS=/bin/echo
 
@@ -22,14 +22,15 @@ info()  { echo -e "${CYAN}[i]${NC} $1"; }
 
 # ===================== ЗАВИСИМОСТИ =====================
 install_packages() {
-    log "Обновление системных баз данных pacman..."
+    log "Обновление системы..."
     sudo pacman -Syu --noconfirm
 
-    log "Установка основных программ и библиотек..."
+    log "Установка базовых пакетов..."
     sudo pacman -S --needed --noconfirm \
         base-devel git xorg xorg-xinit xorg-xrandr xorg-xsetroot \
+        xf86-input-libinput xorg-xinput \
         libx11 libxft libxinerama freetype2 fontconfig \
-        picom dunst \
+        picom dunst xautolock \
         xclip xdotool xsel \
         pavucontrol alsa-utils \
         noto-fonts noto-fonts-cjk ttf-jetbrains-mono ttf-font-awesome \
@@ -40,89 +41,104 @@ install_packages() {
         feh scrot brightnessctl \
         polkit lxsession \
         networkmanager network-manager-applet \
-        openssh
+        openssh bc
 
     log "Включение NetworkManager..."
     sudo systemctl enable --now NetworkManager 2>/dev/null || true
 }
 
-# ===================== YAY (AUR HELPER) =====================
+# ===================== УМНЫЙ И БЫСТРЫЙ YAY =====================
 install_yay() {
     if ! command -v yay &>/dev/null; then
-        log "Установка yay (для AUR пакетов)..."
-        cd /tmp
-        rm -rf yay
-        git clone --depth 1 https://aur.archlinux.org/yay.git
-        cd yay
-        makepkg -si --noconfirm
-        cd ~
+        log "Установка AUR-помощника yay..."
+        
+        # 1. Попытка установить напрямую из репозиториев CachyOS
+        if sudo pacman -S --needed --noconfirm yay 2>/dev/null; then
+            log "yay успешно установлен из репозиториев CachyOS!"
+        else
+            # 2. Попытка установить готовую бинарную сборку yay-bin из AUR (для Arch)
+            warn "Репозитории CachyOS не найдены. Установка yay-bin из AUR..."
+            cd /tmp
+            rm -rf yay-bin
+            if git clone --depth 1 https://aur.archlinux.org/yay-bin.git 2>/dev/null; then
+                cd yay-bin
+                makepkg -si --noconfirm
+                cd ~
+                log "yay-bin успешно установлен!"
+            else
+                # 3. Резервный вариант: сборка yay из исходников
+                warn "Не удалось скачать yay-bin. Собираем стандартный yay из исходников..."
+                cd /tmp
+                rm -rf yay
+                git clone --depth 1 https://aur.archlinux.org/yay.git
+                cd yay
+                makepkg -si --noconfirm
+                cd ~
+                log "yay успешно скомпилирован и установлен!"
+            fi
+        fi
     else
-        log "yay уже установлен"
+        log "yay уже установлен в системе"
     fi
 }
 
 # ===================== AUR ПАКЕТЫ =====================
 install_aur_packages() {
-    log "Установка приложений из AUR..."
+    log "Установка AUR пакетов..."
 
-    # Устанавливаем Zen Browser
-    info "Установка Zen Browser..."
+    info "Zen Browser..."
     yay -S --needed --noconfirm zen-browser-bin || \
     yay -S --needed --noconfirm zen-browser || \
-    warn "Не удалось установить Zen Browser из AUR, установите его позже вручную."
+    warn "Zen Browser не найден, установите позже вручную."
 
-    # Telegram
-    info "Установка Telegram..."
+    info "Telegram..."
     yay -S --needed --noconfirm telegram-desktop || \
         sudo pacman -S --needed --noconfirm telegram-desktop
 
-    # Proton CachyOS
-    info "Установка Proton..."
+    info "Proton..."
     yay -S --needed --noconfirm proton-cachyos-bin 2>/dev/null || \
     yay -S --needed --noconfirm proton-cachyos 2>/dev/null || \
     yay -S --needed --noconfirm proton-ge-custom-bin 2>/dev/null || \
-        warn "Proton CachyOS не найден, вы сможете установить его внутри самого Steam."
+        warn "Proton не найден, установите через Steam."
 }
 
-# ===================== УМНЫЙ ЗАГРУЗЧИК (БЕЗ БЛОКИРОВОК) =====================
+# ===================== ЗАГРУЗЧИК SUCKLESS =====================
 download_tool() {
     local name=$1
     local gitee_url=$2
     local codeberg_url=$3
     local archive_url=$4
 
-    log "Загрузка исходного кода для $name..."
+    log "Загрузка $name..."
     mkdir -p ~/suckless
     cd ~/suckless
     rm -rf "$name" "${name}.tar.gz"
 
-    # Вариант 1: Gitee (Китайское супер-быстрое зеркало)
-    info "Пробуем скачать с Gitee (быстрый запуск)..."
+    info "Gitee..."
     if git clone --depth 1 "$gitee_url" "$name" 2>/dev/null; then
-        log "$name успешно загружен с Gitee!"
+        log "$name загружен с Gitee!"
         return 0
     fi
 
-    # Вариант 2: Codeberg (Европейский независимый хостинг)
-    warn "Gitee недоступен. Пробуем Codeberg..."
+    warn "Codeberg..."
     if git clone --depth 1 "$codeberg_url" "$name" 2>/dev/null; then
-        log "$name успешно загружен с Codeberg!"
+        log "$name загружен с Codeberg!"
         return 0
     fi
 
-    # Вариант 3: Wayback Machine (Архив интернета — 100% стабильность)
-    warn "Git-репозитории недоступны. Скачиваем стабильный архив из Wayback Machine..."
-    if wget --timeout=10 -qO "${name}.tar.gz" "$archive_url" || curl -L --connect-timeout 10 -o "${name}.tar.gz" "$archive_url"; then
+    warn "Wayback Machine..."
+    if wget --timeout=10 -qO "${name}.tar.gz" "$archive_url" || \
+       curl -L --connect-timeout 10 -o "${name}.tar.gz" "$archive_url"; then
         tar -xzf "${name}.tar.gz"
         local extracted_dir
         extracted_dir=$(tar -tf "${name}.tar.gz" | head -1 | cut -f1 -d"/")
         mv "$extracted_dir" "$name"
         rm "${name}.tar.gz"
-        log "$name успешно загружен из Архива Интернета!"
+        log "$name загружен из Архива Интернета!"
         return 0
     fi
 
-    err "Не удалось загрузить $name. Проверьте подключение к интернету или DNS!"
+    err "Не удалось загрузить $name!"
 }
 
 # ===================== СБОРКА DWM =====================
@@ -134,41 +150,42 @@ build_dwm() {
 
     cd ~/suckless/dwm
 
-    # Записываем наш монохромный config.h
     cat > config.h << 'DWMCONFIG'
 /* ============================================================
- *  DWM config.h — Монохромная тема
+ *  DWM config.h — Тёплый монохром
  * ============================================================ */
 
 static const unsigned int borderpx  = 2;
 static const unsigned int snap      = 16;
 static const int showbar            = 1;
 static const int topbar             = 1;
-static const char *fonts[]          = { "JetBrains Mono:size=11", "Font Awesome 6 Free:size=11" };
+static const char *fonts[]          = {
+    "JetBrains Mono:size=11",
+    "Font Awesome 6 Free:size=11"
+};
 static const char dmenufont[]       = "JetBrains Mono:size=11";
 
-static const char col_black[]       = "#000000";
-static const char col_gray1[]       = "#0a0a0a";
-static const char col_gray2[]       = "#1a1a1a";
-static const char col_gray3[]       = "#3a3a3a";
-static const char col_gray4[]       = "#b0b0b0";
-static const char col_white[]       = "#e0e0e0";
-static const char col_accent[]      = "#ffffff";
-static const char col_border[]      = "#444444";
-static const char col_border_sel[]  = "#ffffff";
+/* Тёплая монохромная палитра */
+static const char col_bg[]          = "#0c0b0a";
+static const char col_bg_sel[]      = "#1c1a18";
+static const char col_fg[]          = "#b5ada6";
+static const char col_accent[]      = "#f5efe6";
+static const char col_border[]      = "#3a3632";
+static const char col_border_sel[]  = "#f5efe6";
 
 static const char *colors[][3]      = {
-    [SchemeNorm]   = { col_gray4,  col_gray1,  col_border   },
-    [SchemeSel]    = { col_accent, col_gray2,  col_border_sel },
+    /*                 fg          bg          border       */
+    [SchemeNorm]   = { col_fg,     col_bg,     col_border     },
+    [SchemeSel]    = { col_accent, col_bg_sel, col_border_sel },
 };
 
 static const char *tags[] = { "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX" };
 
 static const Rule rules[] = {
-    { "Steam",            NULL,     NULL,  1 << 3,    1,          -1 },
-    { "TelegramDesktop",  NULL,     NULL,  1 << 2,    0,          -1 },
-    { "Gimp",             NULL,     NULL,  0,         1,          -1 },
-    { "pavucontrol",      NULL,     NULL,  0,         1,          -1 },
+    { "Steam",            NULL, NULL, 1 << 3, 1, -1 },
+    { "TelegramDesktop",  NULL, NULL, 1 << 2, 0, -1 },
+    { "Gimp",             NULL, NULL, 0,      1, -1 },
+    { "pavucontrol",      NULL, NULL, 0,      1, -1 },
 };
 
 static const float mfact     = 0.55;
@@ -177,9 +194,9 @@ static const int resizehints = 0;
 static const int lockfullscreen = 1;
 
 static const Layout layouts[] = {
-    { "[]=",   tile },
-    { "><>",   NULL },
-    { "[M]",   monocle },
+    { "[]=", tile },
+    { "><>", NULL },
+    { "[M]", monocle },
 };
 
 #define MODKEY Mod4Mask
@@ -193,7 +210,7 @@ static const Layout layouts[] = {
 
 static char dmenumon[2] = "0";
 static const char *dmenucmd[]    = { "dmenu_run", "-m", dmenumon, "-fn", dmenufont,
-    "-nb", col_gray1, "-nf", col_gray4, "-sb", col_gray2, "-sf", col_accent,
+    "-nb", col_bg, "-nf", col_fg, "-sb", col_bg_sel, "-sf", col_accent,
     "-l", "20", NULL };
 static const char *termcmd[]     = { "st", NULL };
 static const char *browsercmd[]  = { "zen-browser", NULL };
@@ -201,88 +218,83 @@ static const char *filemgrcmd[]  = { "st", "-e", "lf", NULL };
 static const char *telegramcmd[] = { "telegram-desktop", NULL };
 static const char *steamcmd[]    = { "steam", NULL };
 static const char *screenshot[]  = { "scrot", "-s", "/tmp/screenshot_%Y%m%d_%H%M%S.png", NULL };
+static const char *lockcmd[]     = { "slock", NULL };
 
-static const char *vol_up[]      = { "pactl", "set-sink-volume", "@DEFAULT_SINK@", "+5%", NULL };
-static const char *vol_down[]    = { "pactl", "set-sink-volume", "@DEFAULT_SINK@", "-5%", NULL };
-static const char *vol_mute[]    = { "pactl", "set-sink-mute",   "@DEFAULT_SINK@", "toggle", NULL };
+static const char *vol_up[]   = { "pactl", "set-sink-volume", "@DEFAULT_SINK@", "+5%", NULL };
+static const char *vol_down[] = { "pactl", "set-sink-volume", "@DEFAULT_SINK@", "-5%", NULL };
+static const char *vol_mute[] = { "pactl", "set-sink-mute",   "@DEFAULT_SINK@", "toggle", NULL };
 
-static const char *bri_up[]      = { "brightnessctl", "set", "+10%", NULL };
-static const char *bri_down[]    = { "brightnessctl", "set", "10%-", NULL };
+static const char *bri_up[]   = { "brightnessctl", "set", "+10%", NULL };
+static const char *bri_down[] = { "brightnessctl", "set", "10%-", NULL };
 
 #include <X11/XF86keysym.h>
 
 static const Key keys[] = {
-    { MODKEY,                       XK_d,                     spawn,          {.v = dmenucmd } },
-    { MODKEY,                       XK_Return,                spawn,          {.v = termcmd } },
-    { MODKEY,                       XK_w,                     spawn,          {.v = browsercmd } },
-    { MODKEY,                       XK_e,                     spawn,          {.v = filemgrcmd } },
-    { MODKEY,                       XK_t,                     spawn,          {.v = telegramcmd } },
-    { MODKEY|ShiftMask,             XK_s,                     spawn,          {.v = steamcmd } },
-    { 0,                            XK_Print,                 spawn,          {.v = screenshot } },
+    { MODKEY,                       XK_d,      spawn,          {.v = dmenucmd } },
+    { MODKEY,                       XK_Return, spawn,          {.v = termcmd } },
+    { MODKEY,                       XK_w,      spawn,          {.v = browsercmd } },
+    { MODKEY,                       XK_e,      spawn,          {.v = filemgrcmd } },
+    { MODKEY,                       XK_t,      spawn,          {.v = telegramcmd } },
+    { MODKEY|ShiftMask,             XK_s,      spawn,          {.v = steamcmd } },
+    { MODKEY|ShiftMask,             XK_l,      spawn,          {.v = lockcmd } },
+    { 0,                            XK_Print,  spawn,          {.v = screenshot } },
 
-    { 0, XF86XK_AudioRaiseVolume,                            spawn,          {.v = vol_up } },
-    { 0, XF86XK_AudioLowerVolume,                            spawn,          {.v = vol_down } },
-    { 0, XF86XK_AudioMute,                                   spawn,          {.v = vol_mute } },
+    { 0, XF86XK_AudioRaiseVolume, spawn, {.v = vol_up } },
+    { 0, XF86XK_AudioLowerVolume, spawn, {.v = vol_down } },
+    { 0, XF86XK_AudioMute,       spawn, {.v = vol_mute } },
+    { 0, XF86XK_MonBrightnessUp,   spawn, {.v = bri_up } },
+    { 0, XF86XK_MonBrightnessDown, spawn, {.v = bri_down } },
 
-    { 0, XF86XK_MonBrightnessUp,                             spawn,          {.v = bri_up } },
-    { 0, XF86XK_MonBrightnessDown,                           spawn,          {.v = bri_down } },
+    { MODKEY,           XK_j,      focusstack,     {.i = +1 } },
+    { MODKEY,           XK_k,      focusstack,     {.i = -1 } },
+    { MODKEY,           XK_h,      setmfact,       {.f = -0.05} },
+    { MODKEY,           XK_l,      setmfact,       {.f = +0.05} },
+    { MODKEY,           XK_i,      incnmaster,     {.i = +1 } },
+    { MODKEY|ShiftMask, XK_i,      incnmaster,     {.i = -1 } },
+    { MODKEY|ShiftMask, XK_Return, zoom,           {0} },
+    { MODKEY,           XK_Tab,    view,           {0} },
 
-    { MODKEY,                       XK_j,                     focusstack,     {.i = +1 } },
-    { MODKEY,                       XK_k,                     focusstack,     {.i = -1 } },
-    { MODKEY,                       XK_h,                     setmfact,       {.f = -0.05} },
-    { MODKEY,                       XK_l,                     setmfact,       {.f = +0.05} },
-    { MODKEY,                       XK_i,                     incnmaster,     {.i = +1 } },
-    { MODKEY|ShiftMask,             XK_i,                     incnmaster,     {.i = -1 } },
-    { MODKEY|ShiftMask,             XK_Return,                zoom,           {0} },
-    { MODKEY,                       XK_Tab,                   view,           {0} },
+    { MODKEY|ShiftMask,             XK_q, killclient, {0} },
+    { MODKEY|ControlMask|ShiftMask, XK_q, quit,       {0} },
 
-    { MODKEY|ShiftMask,             XK_q,                     killclient,     {0} },
-    { MODKEY|ControlMask|ShiftMask, XK_q,                     quit,           {0} },
+    { MODKEY,           XK_f,     setlayout,      {.v = &layouts[0]} },
+    { MODKEY|ShiftMask, XK_f,     setlayout,      {.v = &layouts[1]} },
+    { MODKEY,           XK_m,     setlayout,      {.v = &layouts[2]} },
+    { MODKEY,           XK_space, setlayout,      {0} },
+    { MODKEY|ShiftMask, XK_space, togglefloating, {0} },
 
-    { MODKEY,                       XK_f,                     setlayout,      {.v = &layouts[0]} },
-    { MODKEY|ShiftMask,             XK_f,                     setlayout,      {.v = &layouts[1]} },
-    { MODKEY,                       XK_m,                     setlayout,      {.v = &layouts[2]} },
-    { MODKEY,                       XK_space,                 setlayout,      {0} },
-    { MODKEY|ShiftMask,             XK_space,                 togglefloating, {0} },
+    { MODKEY,           XK_b,      togglebar, {0} },
 
-    { MODKEY,                       XK_b,                     togglebar,      {0} },
+    { MODKEY,           XK_comma,  focusmon, {.i = -1 } },
+    { MODKEY,           XK_period, focusmon, {.i = +1 } },
+    { MODKEY|ShiftMask, XK_comma,  tagmon,   {.i = -1 } },
+    { MODKEY|ShiftMask, XK_period, tagmon,   {.i = +1 } },
 
-    { MODKEY,                       XK_comma,                 focusmon,       {.i = -1 } },
-    { MODKEY,                       XK_period,                focusmon,       {.i = +1 } },
-    { MODKEY|ShiftMask,             XK_comma,                 tagmon,         {.i = -1 } },
-    { MODKEY|ShiftMask,             XK_period,                tagmon,         {.i = +1 } },
+    { MODKEY,           XK_0, view, {.ui = ~0 } },
+    { MODKEY|ShiftMask, XK_0, tag,  {.ui = ~0 } },
 
-    { MODKEY,                       XK_0,                     view,           {.ui = ~0 } },
-    { MODKEY|ShiftMask,             XK_0,                     tag,            {.ui = ~0 } },
-
-    TAGKEYS(                        XK_1,                                     0)
-    TAGKEYS(                        XK_2,                                     1)
-    TAGKEYS(                        XK_3,                                     2)
-    TAGKEYS(                        XK_4,                                     3)
-    TAGKEYS(                        XK_5,                                     4)
-    TAGKEYS(                        XK_6,                                     5)
-    TAGKEYS(                        XK_7,                                     6)
-    TAGKEYS(                        XK_8,                                     7)
-    TAGKEYS(                        XK_9,                                     8)
+    TAGKEYS(XK_1, 0) TAGKEYS(XK_2, 1) TAGKEYS(XK_3, 2)
+    TAGKEYS(XK_4, 3) TAGKEYS(XK_5, 4) TAGKEYS(XK_6, 5)
+    TAGKEYS(XK_7, 6) TAGKEYS(XK_8, 7) TAGKEYS(XK_9, 8)
 };
 
 static const Button buttons[] = {
-    { ClkLtSymbol,    0,          Button1,  setlayout,      {0} },
-    { ClkLtSymbol,    0,          Button3,  setlayout,      {.v = &layouts[2]} },
-    { ClkWinTitle,    0,          Button2,  zoom,           {0} },
-    { ClkStatusText,  0,          Button2,  spawn,          {.v = termcmd } },
-    { ClkClientWin,   MODKEY,     Button1,  movemouse,      {0} },
-    { ClkClientWin,   MODKEY,     Button2,  togglefloating, {0} },
-    { ClkClientWin,   MODKEY,     Button3,  resizemouse,    {0} },
-    { ClkTagBar,      0,          Button1,  view,           {0} },
-    { ClkTagBar,      0,          Button3,  toggleview,     {0} },
-    { ClkTagBar,      MODKEY,     Button1,  tag,            {0} },
-    { ClkTagBar,      MODKEY,     Button3,  toggletag,      {0} },
+    { ClkLtSymbol,   0,      Button1, setlayout,      {0} },
+    { ClkLtSymbol,   0,      Button3, setlayout,      {.v = &layouts[2]} },
+    { ClkWinTitle,   0,      Button2, zoom,           {0} },
+    { ClkStatusText, 0,      Button2, spawn,          {.v = termcmd } },
+    { ClkClientWin,  MODKEY, Button1, movemouse,      {0} },
+    { ClkClientWin,  MODKEY, Button2, togglefloating, {0} },
+    { ClkClientWin,  MODKEY, Button3, resizemouse,    {0} },
+    { ClkTagBar,     0,      Button1, view,           {0} },
+    { ClkTagBar,     0,      Button3, toggleview,     {0} },
+    { ClkTagBar,     MODKEY, Button1, tag,            {0} },
+    { ClkTagBar,     MODKEY, Button3, toggletag,      {0} },
 };
 DWMCONFIG
 
     sudo make clean install
-    log "DWM успешно скомпилирован и установлен!"
+    log "DWM установлен!"
     cd ~/suckless
 }
 
@@ -294,12 +306,17 @@ build_st() {
         "https://web.archive.org/web/20240401000000/https://dl.suckless.org/st/st-0.9.2.tar.gz"
 
     cd ~/suckless/st
+
     sed -i 's/static char \*font = .*/static char *font = "JetBrains Mono:pixelsize=16:antialias=true:autohint=true";/' config.def.h
     sed -i 's/static int borderpx.*/static int borderpx = 12;/' config.def.h
 
+    sed -i 's/\[256\] = "#......"/[256] = "#0c0b0a"/' config.def.h 2>/dev/null
+    sed -i 's/\[257\] = "#......"/[257] = "#b5ada6"/' config.def.h 2>/dev/null
+    sed -i 's/\[258\] = "#......"/[258] = "#f5efe6"/' config.def.h 2>/dev/null
+
     cp config.def.h config.h
     sudo make clean install
-    log "st успешно скомпилирован и установлен!"
+    log "st установлен!"
     cd ~/suckless
 }
 
@@ -312,42 +329,164 @@ build_dmenu() {
 
     cd ~/suckless/dmenu
 
-    # ПРЯМАЯ И ЧИСТАЯ ЗАПИСЬ CONFIG.H ДЛЯ DMENU (БЕЗ ИСПОЛЬЗОВАНИЯ FRAGILE SED)
     cat > config.h << 'DMENUCONFIG'
-/* See LICENSE file for copyright and license details. */
-/* Default settings; can be overriden by command line. */
+static int topbar = 1;
 
-static int topbar = 1;                      /* -b  option; if 0, dmenu appears at the bottom     */
-
-/* -fn option overrides fonts[0]; default X11 font or font set */
 static const char *fonts[] = {
 	"JetBrains Mono:size=11"
 };
-static const char *prompt      = NULL;      /* -p  option; prompt to the left of input field    */
+static const char *prompt      = NULL;
 static const char *colors[SchemeLast][2] = {
-	/*     fg         bg       */
-	[SchemeNorm] = { "#b0b0b0", "#0a0a0a" },
-	[SchemeSel]  = { "#ffffff", "#1a1a1a" },
-	[SchemeOut]  = { "#000000", "#3a3a3a" },
+	[SchemeNorm] = { "#b5ada6", "#0c0b0a" },
+	[SchemeSel]  = { "#f5efe6", "#1c1a18" },
+	[SchemeOut]  = { "#0c0b0a", "#3a3632" },
 };
-/* -l option; if nonzero, dmenu uses vertical list with given number of lines */
 static unsigned int lines      = 20;
 
-/*
- * Characters not considered part of a word while deleting words
- * for example: " gy;!·\"#$%&/()=+_-,.:;*^`[]{}|"
- */
 static const char worddelimiters[] = " ";
 DMENUCONFIG
 
     sudo make clean install
-    log "dmenu успешно скомпилирован и установлен!"
+    log "dmenu установлен!"
     cd ~/suckless
+}
+
+# ===================== СБОРКА SLOCK =====================
+build_slock() {
+    download_tool "slock" \
+        "https://gitee.com/mirrors/slock.git" \
+        "https://codeberg.org/gergelylaba/slock.git" \
+        "https://web.archive.org/web/20240401000000/https://dl.suckless.org/tools/slock-1.5.tar.gz"
+
+    cd ~/suckless/slock
+
+    cat > config.h << 'SLOCKCONFIG'
+static const char *user  = "nobody";
+static const char *group = "nogroup";
+
+static const char *colorname[NUMCOLS] = {
+	[INIT] =   "#0c0b0a",     /* Заблокировано (тёплый чёрный) */
+	[INPUT] =  "#f5efe6",     /* Ввод пароля (кремовый) */
+	[FAILED] = "#3a3632",     /* Ошибка (тёмно-серый) */
+};
+
+static const int failonclear = 1;
+SLOCKCONFIG
+
+    sudo make clean install
+    log "Блокировщик slock установлен!"
+    cd ~/suckless
+}
+
+# ===================== ОТКЛЮЧЕНИЕ АКСЕЛЕРАЦИИ МЫШИ =====================
+create_mouse_config() {
+    log "Отключение акселерации мыши..."
+
+    sudo mkdir -p /etc/X11/xorg.conf.d
+    sudo tee /etc/X11/xorg.conf.d/50-mouse-accel.conf > /dev/null << 'MOUSECONF'
+Section "InputClass"
+    Identifier "Mouse - No Acceleration"
+    MatchIsPointer "yes"
+    Option "AccelProfile" "flat"
+    Option "AccelSpeed" "0"
+    Option "TransformationMatrix" "1 0 0 0 1 0 0 0 1"
+EndSection
+
+Section "InputClass"
+    Identifier "Touchpad - No Acceleration"
+    MatchIsTouchpad "yes"
+    Option "AccelProfile" "flat"
+    Option "AccelSpeed" "0"
+EndSection
+MOUSECONF
+
+    log "Акселерация мыши отключена"
+}
+
+# ===================== НОЧНОЙ РЕЖИМ =====================
+create_nightshift() {
+    log "Создание автозатемнения..."
+
+    mkdir -p ~/bin
+
+    cat > ~/bin/nightshift << 'NIGHTSHIFT'
+#!/bin/bash
+get_gamma_and_brightness() {
+    local hour=$1
+    local minute=$2
+    local total_minutes=$(( hour * 60 + minute ))
+    local brightness gamma_r gamma_g gamma_b
+
+    if [ $total_minutes -ge 360 ] && [ $total_minutes -lt 540 ]; then
+        local progress=$(echo "scale=4; ($total_minutes - 360) / 180" | bc)
+        brightness=$(echo "scale=4; 0.85 + 0.15 * $progress" | bc)
+        gamma_r="1.0"
+        gamma_g=$(echo "scale=4; 0.90 + 0.10 * $progress" | bc)
+        gamma_b=$(echo "scale=4; 0.80 + 0.20 * $progress" | bc)
+    elif [ $total_minutes -ge 540 ] && [ $total_minutes -lt 1080 ]; then
+        brightness="1.0"
+        gamma_r="1.0"
+        gamma_g="1.0"
+        gamma_b="1.0"
+    elif [ $total_minutes -ge 1080 ] && [ $total_minutes -lt 1260 ]; then
+        local progress=$(echo "scale=4; ($total_minutes - 1080) / 180" | bc)
+        brightness=$(echo "scale=4; 1.0 - 0.20 * $progress" | bc)
+        gamma_r="1.0"
+        gamma_g=$(echo "scale=4; 1.0 - 0.12 * $progress" | bc)
+        gamma_b=$(echo "scale=4; 1.0 - 0.25 * $progress" | bc)
+    elif [ $total_minutes -ge 1260 ] && [ $total_minutes -lt 1440 ]; then
+        local progress=$(echo "scale=4; ($total_minutes - 1260) / 180" | bc)
+        brightness=$(echo "scale=4; 0.80 - 0.10 * $progress" | bc)
+        gamma_r="1.0"
+        gamma_g=$(echo "scale=4; 0.88 - 0.05 * $progress" | bc)
+        gamma_b=$(echo "scale=4; 0.75 - 0.10 * $progress" | bc)
+    else
+        brightness="0.70"
+        gamma_r="1.0"
+        gamma_g="0.83"
+        gamma_b="0.65"
+    fi
+    echo "$brightness $gamma_r $gamma_g $gamma_b"
+}
+
+apply_settings() {
+    local hour=$(date +%-H)
+    local minute=$(date +%-M)
+    local values=$(get_gamma_and_brightness $hour $minute)
+    local brightness=$(echo "$values" | awk '{print $1}')
+    local gr=$(echo "$values" | awk '{print $2}')
+    local gg=$(echo "$values" | awk '{print $3}')
+    local gb=$(echo "$values" | awk '{print $4}')
+
+    for output in $(xrandr --query | grep " connected" | awk '{print $1}'); do
+        xrandr --output "$output" --brightness "$brightness" --gamma "${gr}:${gg}:${gb}" 2>/dev/null
+    done
+}
+
+while true; do
+    apply_settings
+    sleep 60
+done
+NIGHTSHIFT
+
+    chmod +x ~/bin/nightshift
+
+    cat > ~/bin/nightshift-reset << 'NSRESET'
+#!/bin/bash
+for output in $(xrandr --query | grep " connected" | awk '{print $1}'); do
+    xrandr --output "$output" --brightness 1.0 --gamma 1.0:1.0:1.0
+done
+NSRESET
+    chmod +x ~/bin/nightshift-reset
+
+    if ! grep -q 'export PATH="$HOME/bin:$PATH"' ~/.bashrc; then
+        echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc
+    fi
 }
 
 # ===================== СТАТУС-БАР =====================
 create_statusbar() {
-    log "Создание скрипта статус-бара..."
+    log "Создание статус-бара..."
 
     cat > ~/suckless/dwm-statusbar.sh << 'STATUSBAR'
 #!/bin/bash
@@ -383,7 +522,6 @@ done
 STATUSBAR
 
     chmod +x ~/suckless/dwm-statusbar.sh
-    log "Статус-бар создан"
 }
 
 # ===================== XINITRC =====================
@@ -392,14 +530,36 @@ create_xinitrc() {
 
     cat > ~/.xinitrc << 'XINITRC'
 #!/bin/sh
+
+# Клавиатура
 setxkbmap -layout us,ru -option grp:alt_shift_toggle &
+
+# Курсор
 xsetroot -cursor_name left_ptr &
+
+# Отключение акселерации мыши
+sleep 1
+for id in $(xinput list --id-only 2>/dev/null); do
+    xinput set-prop "$id" "libinput Accel Profile Enabled" 0 1 2>/dev/null
+    xinput set-prop "$id" "libinput Accel Speed" 0 2>/dev/null
+done &
+
+# Композитор и фон
 picom --config ~/.config/picom/picom.conf -b 2>/dev/null &
-xsetroot -solid "#0a0a0a" &
+xsetroot -solid "#0c0b0a" &
+
+# Уведомления и сессия
 dunst &
 lxsession &
-~/suckless/dwm-statusbar.sh &
 
+# Автоблокировка через 10 минут простоя
+xautolock -time 10 -locker slock -detectsleep &
+
+# Статус-бар и ночной режим
+~/suckless/dwm-statusbar.sh &
+~/bin/nightshift &
+
+# Запуск
 exec dwm
 XINITRC
 
@@ -409,7 +569,6 @@ XINITRC
 
 # ===================== PICOM =====================
 create_picom_config() {
-    log "Создание конфига picom..."
     mkdir -p ~/.config/picom
     cat > ~/.config/picom/picom.conf << 'PICOM'
 backend = "xrender";
@@ -418,7 +577,7 @@ shadow-radius = 12;
 shadow-offset-x = -7;
 shadow-offset-y = -7;
 shadow-opacity = 0.6;
-shadow-color = "#000000";
+shadow-color = "#0c0b0a";
 
 inactive-opacity = 0.95;
 active-opacity = 1.0;
@@ -432,12 +591,10 @@ fade-delta = 5;
 corner-radius = 0;
 vsync = true;
 PICOM
-    log "Picom настроен"
 }
 
 # ===================== DUNST =====================
 create_dunst_config() {
-    log "Создание конфига dunst..."
     mkdir -p ~/.config/dunst
     cat > ~/.config/dunst/dunstrc << 'DUNST'
 [global]
@@ -448,32 +605,30 @@ create_dunst_config() {
     origin = top-right
     offset = 20x40
     frame_width = 2
-    frame_color = "#3a3a3a"
+    frame_color = "#3a3632"
     font = JetBrains Mono 10
     corner_radius = 0
 
 [urgency_low]
-    background = "#0a0a0a"
-    foreground = "#b0b0b0"
+    background = "#0c0b0a"
+    foreground = "#b5ada6"
     timeout = 5
 
 [urgency_normal]
-    background = "#0a0a0a"
-    foreground = "#d0d0d0"
+    background = "#0c0b0a"
+    foreground = "#d5cdc4"
     timeout = 10
 
 [urgency_critical]
-    background = "#1a1a1a"
-    foreground = "#ffffff"
-    frame_color = "#ffffff"
+    background = "#1c1a18"
+    foreground = "#f5efe6"
+    frame_color = "#f5efe6"
     timeout = 0
 DUNST
-    log "Dunst настроен"
 }
 
 # ===================== LF =====================
 create_lf_config() {
-    log "Создание конфига lf..."
     mkdir -p ~/.config/lf
     cat > ~/.config/lf/lfrc << 'LFRC'
 set ratios 1:2:3
@@ -501,12 +656,10 @@ cmd open ${{
     esac
 }}
 LFRC
-    log "lf настроен"
 }
 
 # ===================== GTK ТЕМА =====================
 create_gtk_theme() {
-    log "Настройка тёмной GTK темы..."
     mkdir -p ~/.config/gtk-3.0
     cat > ~/.config/gtk-3.0/settings.ini << 'GTK3'
 [Settings]
@@ -521,12 +674,10 @@ gtk-theme-name="Adwaita-dark"
 gtk-icon-theme-name="Adwaita"
 gtk-font-name="JetBrains Mono 11"
 GTK2
-    log "GTK тема настроена"
 }
 
 # ===================== СЕССИЯ DWM =====================
 create_session() {
-    log "Создание файла сессии DWM..."
     sudo mkdir -p /usr/share/xsessions
     sudo tee /usr/share/xsessions/dwm.desktop > /dev/null << 'SESSION'
 [Desktop Entry]
@@ -537,12 +688,10 @@ Exec=/usr/local/bin/dwm
 Icon=dwm
 Type=XSession
 SESSION
-    log "Сессия DWM создана"
 }
 
-# ===================== SPRAVKA =====================
+# ===================== ШПАРГАЛКА =====================
 create_cheatsheet() {
-    log "Создание шпаргалки..."
     cat > ~/dwm-keybinds.txt << 'CHEAT'
 ╔══════════════════════════════════════════════════════════════╗
 ║                    DWM KEYBINDINGS                          ║
@@ -555,7 +704,11 @@ create_cheatsheet() {
 ║  Super + E            — Файловый менеджер (lf)               ║
 ║  Super + T            — Telegram                             ║
 ║  Super + Shift + S    — Steam                                ║
-║  Print Screen         — Скриншот (выделение)                 ║
+║  Print Screen         — Скриншот                             ║
+║                                                              ║
+║  БЛОКИРОВКА ЭКРАНА                                           ║
+║  Super + Shift + L    — Заблокировать вручную (slock)        ║
+║  * Автоблокировка через 10 минут бездействия (xautolock)     ║
 ║                                                              ║
 ║  УПРАВЛЕНИЕ ОКНАМИ                                           ║
 ║  Super + J/K          — Переключение между окнами            ║
@@ -563,14 +716,16 @@ create_cheatsheet() {
 ║  Super + Shift+Enter  — Сделать главным (master)             ║
 ║  Super + Shift + Q    — Закрыть окно                         ║
 ║  Super + Shift+Space  — Плавающий режим                      ║
-║  Super + F            — Tiling layout                        ║
-║  Super + Shift + F    — Floating layout                      ║
-║  Super + M            — Monocle (полный экран)               ║
+║  Super + F            — Tiling    Super + M — Monocle        ║
 ║  Super + B            — Скрыть/показать панель               ║
 ║                                                              ║
 ║  РАБОЧИЕ СТОЛЫ                                               ║
 ║  Super + 1-9          — Переключить рабочий стол             ║
 ║  Super + Shift + 1-9  — Перенести окно на стол               ║
+║                                                              ║
+║  НОЧНОЙ РЕЖИМ                                                ║
+║  Автоматический (nightshift в ~/bin/)                        ║
+║  nightshift-reset     — Сбросить цвет экрана                 ║
 ║                                                              ║
 ║  СИСТЕМА                                                     ║
 ║  Ctrl+Super+Shift+Q   — Выход из DWM                         ║
@@ -578,15 +733,14 @@ create_cheatsheet() {
 ║                                                              ║
 ╚══════════════════════════════════════════════════════════════╝
 CHEAT
-    log "Шпаргалка: ~/dwm-keybinds.txt"
 }
 
 # ===================== MAIN =====================
 main() {
     echo ""
     echo -e "${CYAN}╔══════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║   DWM Monochrome Setup — CachyOS / Arch     ║${NC}"
-    echo -e "${CYAN}║   Версия 5.1 (Исправленная dmenu сборка)    ║${NC}"
+    echo -e "${CYAN}║   DWM Warm Monochrome — CachyOS / Arch      ║${NC}"
+    echo -e "${CYAN}║   v7.1  Умный yay · Ночной режим · Slock    ║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
 
@@ -597,7 +751,10 @@ main() {
     build_dwm
     build_st
     build_dmenu
+    build_slock
 
+    create_mouse_config
+    create_nightshift
     create_statusbar
     create_xinitrc
     create_picom_config
@@ -612,7 +769,7 @@ main() {
     echo -e "${GREEN}║          УСТАНОВКА ЗАВЕРШЕНА!                ║${NC}"
     echo -e "${GREEN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
-    info "Для запуска DWM перезагрузите ПК и выберите сессию 'DWM'."
+    info "Запуск: перезагрузите ПК → выберите сессию 'DWM' в окне входа."
     echo ""
 }
 
