@@ -1,6 +1,6 @@
 #!/bin/bash
 # install.sh — Полная установка DWM окружения на CachyOS/Arch
-# Версия 9.0 — Скриншоты, трей, исправление slock и Telegram
+# Версия 10.0 — Systray патч, i3lock-color, автозагрузка nightshift
 
 set -e
 
@@ -41,19 +41,15 @@ install_packages() {
         polkit lxsession \
         networkmanager network-manager-applet \
         blueman \
-        stalonetray \
         libnotify \
-        openssh bc
-
-    log "Включение NetworkManager..."
-    sudo systemctl enable --now NetworkManager 2>/dev/null || true
+        openssh bc \
+        imagemagick
 }
 
 # ===================== YAY =====================
 install_yay() {
     if ! command -v yay &>/dev/null; then
         log "Установка yay..."
-
         if sudo pacman -S --needed --noconfirm yay 2>/dev/null; then
             log "yay установлен из репозиториев CachyOS!"
         else
@@ -66,7 +62,6 @@ install_yay() {
                 cd ~
                 log "yay-bin установлен!"
             else
-                warn "Сборка yay из исходников..."
                 cd /tmp
                 rm -rf yay
                 git clone --depth 1 https://aur.archlinux.org/yay.git
@@ -85,10 +80,14 @@ install_yay() {
 install_aur_packages() {
     log "Установка AUR пакетов..."
 
+    info "i3lock-color (красивый блокировщик)..."
+    yay -S --needed --noconfirm i3lock-color || \
+        warn "i3lock-color не установлен"
+
     info "Zen Browser..."
     yay -S --needed --noconfirm zen-browser-bin || \
     yay -S --needed --noconfirm zen-browser || \
-    warn "Zen Browser не найден, установите позже вручную."
+        warn "Zen Browser не найден."
 
     info "Telegram..."
     sudo pacman -S --needed --noconfirm telegram-desktop || \
@@ -102,7 +101,7 @@ install_aur_packages() {
 
     info "xidlehook (автоблокировка)..."
     yay -S --needed --noconfirm xidlehook 2>/dev/null || \
-        warn "xidlehook не найден, автоблокировка не будет работать."
+        warn "xidlehook не установлен."
 }
 
 # ===================== ЗАГРУЗЧИК SUCKLESS =====================
@@ -119,13 +118,13 @@ download_tool() {
 
     info "Gitee..."
     if git clone --depth 1 "$gitee_url" "$name" 2>/dev/null; then
-        log "$name загружен с Gitee!"
+        log "$name загружен!"
         return 0
     fi
 
     warn "Codeberg..."
     if git clone --depth 1 "$codeberg_url" "$name" 2>/dev/null; then
-        log "$name загружен с Codeberg!"
+        log "$name загружен!"
         return 0
     fi
 
@@ -137,95 +136,14 @@ download_tool() {
         extracted_dir=$(tar -tf "${name}.tar.gz" | head -1 | cut -f1 -d"/")
         mv "$extracted_dir" "$name"
         rm "${name}.tar.gz"
-        log "$name загружен из Архива Интернета!"
+        log "$name загружен!"
         return 0
     fi
 
     err "Не удалось загрузить $name!"
 }
 
-# ===================== СКРИПТ СКРИНШОТОВ =====================
-create_screenshot_script() {
-    log "Создание скрипта скриншотов..."
-
-    mkdir -p ~/bin
-    mkdir -p ~/Pictures/Screenshots
-
-    cat > ~/bin/screenshot << 'SCREENSHOT'
-#!/bin/bash
-# Скриншот выделенной области с сохранением в ~/Pictures/Screenshots/
-
-SCREENSHOT_DIR="$HOME/Pictures/Screenshots"
-mkdir -p "$SCREENSHOT_DIR"
-
-FILENAME="screenshot_$(date +'%Y-%m-%d_%H-%M-%S').png"
-FILEPATH="$SCREENSHOT_DIR/$FILENAME"
-
-# Делаем скриншот выделенной области
-scrot -s "$FILEPATH" 2>/dev/null
-
-if [ -f "$FILEPATH" ]; then
-    # Копируем в буфер обмена
-    xclip -selection clipboard -t image/png -i "$FILEPATH" 2>/dev/null
-
-    # Уведомление
-    notify-send "Скриншот сохранён" "$FILENAME\nСкопирован в буфер обмена" \
-        -i "$FILEPATH" -t 3000 2>/dev/null
-fi
-SCREENSHOT
-
-    cat > ~/bin/screenshot-full << 'SCREENSHOTFULL'
-#!/bin/bash
-# Скриншот всего экрана
-
-SCREENSHOT_DIR="$HOME/Pictures/Screenshots"
-mkdir -p "$SCREENSHOT_DIR"
-
-FILENAME="screenshot_$(date +'%Y-%m-%d_%H-%M-%S')_full.png"
-FILEPATH="$SCREENSHOT_DIR/$FILENAME"
-
-scrot "$FILEPATH" 2>/dev/null
-
-if [ -f "$FILEPATH" ]; then
-    xclip -selection clipboard -t image/png -i "$FILEPATH" 2>/dev/null
-    notify-send "Скриншот сохранён" "$FILENAME\nСкопирован в буфер обмена" \
-        -i "$FILEPATH" -t 3000 2>/dev/null
-fi
-SCREENSHOTFULL
-
-    chmod +x ~/bin/screenshot ~/bin/screenshot-full
-    log "Скриншоты будут в ~/Pictures/Screenshots/"
-}
-
-# ===================== СКРИПТ ЗАПУСКА TELEGRAM =====================
-create_telegram_launcher() {
-    log "Создание универсального запускателя Telegram..."
-
-    mkdir -p ~/bin
-
-    cat > ~/bin/telegram << 'TELEGRAM'
-#!/bin/bash
-# Универсальный запуск Telegram (проверяет разные варианты бинарей)
-
-if command -v telegram-desktop &>/dev/null; then
-    exec telegram-desktop "$@"
-elif command -v Telegram &>/dev/null; then
-    exec Telegram "$@"
-elif [ -x "/usr/bin/telegram-desktop" ]; then
-    exec /usr/bin/telegram-desktop "$@"
-elif [ -x "/opt/telegram-desktop/Telegram" ]; then
-    exec /opt/telegram-desktop/Telegram "$@"
-else
-    notify-send "Telegram" "Telegram не установлен!" -u critical
-    exit 1
-fi
-TELEGRAM
-
-    chmod +x ~/bin/telegram
-    log "Telegram запускатель создан"
-}
-
-# ===================== СБОРКА DWM =====================
+# ===================== СБОРКА DWM С SYSTRAY =====================
 build_dwm() {
     download_tool "dwm" \
         "https://gitee.com/mirrors/dwm.git" \
@@ -234,22 +152,49 @@ build_dwm() {
 
     cd ~/suckless/dwm
 
+    # Скачиваем и применяем патч systray
+    log "Применение патча systray..."
+    local SYSTRAY_APPLIED=0
+
+    if wget --timeout=10 -qO dwm-systray.diff \
+        "https://dwm.suckless.org/patches/systray/dwm-systray-6.4.diff" 2>/dev/null || \
+       curl -sLo dwm-systray.diff \
+        "https://web.archive.org/web/20240401000000/https://dwm.suckless.org/patches/systray/dwm-systray-6.4.diff" 2>/dev/null; then
+
+        if patch -p1 --forward < dwm-systray.diff 2>/dev/null; then
+            SYSTRAY_APPLIED=1
+            log "Патч systray успешно применён!"
+        else
+            warn "Патч systray не применился чисто. Трей будет через stalonetray."
+            # Откатываем поломанные файлы
+            git checkout -- . 2>/dev/null || true
+        fi
+    else
+        warn "Не удалось скачать патч systray."
+    fi
+
+    # Записываем config.h
     cat > config.h << 'DWMCONFIG'
 /* ============================================================
- *  DWM config.h — Тёплый монохром v9
+ *  DWM config.h — Тёплый монохром v10 + systray
  * ============================================================ */
 
-static const unsigned int borderpx  = 2;
-static const unsigned int snap      = 16;
-static const int showbar            = 1;
-static const int topbar             = 1;
+static const unsigned int borderpx       = 2;
+static const unsigned int snap           = 16;
+static const unsigned int systraypinning = 0;
+static const unsigned int systrayonleft  = 0;
+static const unsigned int systrayspacing = 4;
+static const int systraypinningfailfirst = 1;
+static const int showsystray             = 1;
+static const int showbar                 = 1;
+static const int topbar                  = 1;
+
 static const char *fonts[]          = {
     "JetBrains Mono:size=11",
     "Font Awesome 6 Free:size=11"
 };
 static const char dmenufont[]       = "JetBrains Mono:size=11";
 
-/* Тёплая монохромная палитра */
 static const char col_bg[]          = "#0c0b0a";
 static const char col_bg_sel[]      = "#1c1a18";
 static const char col_fg[]          = "#b5ada6";
@@ -270,7 +215,6 @@ static const Rule rules[] = {
     { "telegram-desktop", NULL, NULL, 1 << 2, 0, -1 },
     { "Gimp",             NULL, NULL, 0,      1, -1 },
     { "pavucontrol",      NULL, NULL, 0,      1, -1 },
-    { "stalonetray",      NULL, NULL, 0,      1, -1 },
 };
 
 static const float mfact     = 0.55;
@@ -304,19 +248,17 @@ static const char *telegramcmd[]     = { "sh", "-c", "$HOME/bin/telegram", NULL 
 static const char *steamcmd[]        = { "steam", NULL };
 static const char *screenshot[]      = { "sh", "-c", "$HOME/bin/screenshot", NULL };
 static const char *screenshotfull[]  = { "sh", "-c", "$HOME/bin/screenshot-full", NULL };
-static const char *lockcmd[]         = { "slock", NULL };
+static const char *lockcmd[]         = { "sh", "-c", "$HOME/bin/lockscreen", NULL };
 
 static const char *vol_up[]   = { "pactl", "set-sink-volume", "@DEFAULT_SINK@", "+5%", NULL };
 static const char *vol_down[] = { "pactl", "set-sink-volume", "@DEFAULT_SINK@", "-5%", NULL };
 static const char *vol_mute[] = { "pactl", "set-sink-mute",   "@DEFAULT_SINK@", "toggle", NULL };
-
 static const char *bri_up[]   = { "brightnessctl", "set", "+10%", NULL };
 static const char *bri_down[] = { "brightnessctl", "set", "10%-", NULL };
 
 #include <X11/XF86keysym.h>
 
 static const Key keys[] = {
-    /* ─── Запуск программ ─── */
     { MODKEY,                       XK_d,      spawn,          {.v = dmenucmd } },
     { MODKEY,                       XK_Return, spawn,          {.v = termcmd } },
     { MODKEY,                       XK_w,      spawn,          {.v = browsercmd } },
@@ -327,14 +269,12 @@ static const Key keys[] = {
     { 0,                            XK_Print,  spawn,          {.v = screenshot } },
     { ShiftMask,                    XK_Print,  spawn,          {.v = screenshotfull } },
 
-    /* ─── Громкость / яркость ─── */
     { 0, XF86XK_AudioRaiseVolume, spawn, {.v = vol_up } },
     { 0, XF86XK_AudioLowerVolume, spawn, {.v = vol_down } },
     { 0, XF86XK_AudioMute,       spawn, {.v = vol_mute } },
     { 0, XF86XK_MonBrightnessUp,   spawn, {.v = bri_up } },
     { 0, XF86XK_MonBrightnessDown, spawn, {.v = bri_down } },
 
-    /* ─── Управление окнами ─── */
     { MODKEY,           XK_j,      focusstack,     {.i = +1 } },
     { MODKEY,           XK_k,      focusstack,     {.i = -1 } },
     { MODKEY,           XK_h,      setmfact,       {.f = -0.05} },
@@ -344,31 +284,25 @@ static const Key keys[] = {
     { MODKEY|ShiftMask, XK_Return, zoom,           {0} },
     { MODKEY,           XK_Tab,    view,           {0} },
 
-    /* ─── Закрытие / выход ─── */
     { MODKEY|ShiftMask,             XK_q, killclient, {0} },
     { MODKEY|ControlMask|ShiftMask, XK_q, quit,       {0} },
 
-    /* ─── Раскладки окон ─── */
     { MODKEY,             XK_semicolon, setlayout, {.v = &layouts[0]} },
     { MODKEY|ShiftMask,   XK_semicolon, setlayout, {.v = &layouts[1]} },
     { MODKEY,             XK_m,         setlayout, {.v = &layouts[2]} },
     { MODKEY,             XK_n,         setlayout, {0} },
     { MODKEY|ShiftMask,   XK_n,         togglefloating, {0} },
 
-    /* ─── Бар ─── */
     { MODKEY,           XK_b,      togglebar, {0} },
 
-    /* ─── Мониторы ─── */
     { MODKEY,           XK_comma,  focusmon, {.i = -1 } },
     { MODKEY,           XK_period, focusmon, {.i = +1 } },
     { MODKEY|ShiftMask, XK_comma,  tagmon,   {.i = -1 } },
     { MODKEY|ShiftMask, XK_period, tagmon,   {.i = +1 } },
 
-    /* ─── Все теги ─── */
     { MODKEY,           XK_0, view, {.ui = ~0 } },
     { MODKEY|ShiftMask, XK_0, tag,  {.ui = ~0 } },
 
-    /* ─── Теги 1-9 ─── */
     TAGKEYS(XK_1, 0) TAGKEYS(XK_2, 1) TAGKEYS(XK_3, 2)
     TAGKEYS(XK_4, 3) TAGKEYS(XK_5, 4) TAGKEYS(XK_6, 5)
     TAGKEYS(XK_7, 6) TAGKEYS(XK_8, 7) TAGKEYS(XK_9, 8)
@@ -388,6 +322,16 @@ static const Button buttons[] = {
     { ClkTagBar,     MODKEY, Button3, toggletag,      {0} },
 };
 DWMCONFIG
+
+    # Если патч systray НЕ применился — убираем systray-переменные из config.h
+    if [ "$SYSTRAY_APPLIED" -eq 0 ]; then
+        warn "Убираю systray-переменные из config.h (патч не был применён)..."
+        sed -i '/systraypinning/d' config.h
+        sed -i '/systrayonleft/d' config.h
+        sed -i '/systrayspacing/d' config.h
+        sed -i '/systraypinningfailfirst/d' config.h
+        sed -i '/showsystray/d' config.h
+    fi
 
     sudo make clean install
     log "DWM установлен!"
@@ -416,7 +360,6 @@ static const char *colors[SchemeLast][2] = {
 	[SchemeOut]  = { "#0c0b0a", "#3a3632" },
 };
 static unsigned int lines      = 20;
-
 static const char worddelimiters[] = " ";
 DMENUCONFIG
 
@@ -425,48 +368,175 @@ DMENUCONFIG
     cd ~/suckless
 }
 
-# ===================== СБОРКА SLOCK =====================
-build_slock() {
-    download_tool "slock" \
-        "https://gitee.com/mirrors/slock.git" \
-        "https://codeberg.org/gergelylaba/slock.git" \
-        "https://web.archive.org/web/20240401000000/https://dl.suckless.org/tools/slock-1.5.tar.gz"
+# ===================== LOCKSCREEN (i3lock-color) =====================
+create_lockscreen() {
+    log "Создание скрипта блокировки экрана (i3lock-color)..."
 
-    cd ~/suckless/slock
+    mkdir -p ~/bin
 
-    cat > config.h << 'SLOCKCONFIG'
-/* Пользователь и группа */
-static const char *user  = "nobody";
-static const char *group = "nobody";
+    cat > ~/bin/lockscreen << 'LOCKSCREEN'
+#!/bin/bash
+# ─── Тёплый монохромный экран блокировки (i3lock-color) ───
+#
+# Делает скриншот → размывает → затемняет → показывает кольцо ввода пароля
+# Всё в тёплых монохромных тонах, тихо и минималистично
 
-static const char *colorname[NUMCOLS] = {
-	[INIT] =   "#0c0b0a",
-	[INPUT] =  "#f5efe6",
-	[FAILED] = "#3a3632",
-};
+# Цвета (тёплый монохром)
+BG="#0c0b0aff"           # Фон (тёплый чёрный)
+FG="#b5ada6ff"           # Текст (тёплый серый)
+ACCENT="#f5efe6ff"       # Акцент (кремовый)
+RING="#3a3632ff"         # Кольцо (тёплый тёмно-серый)
+RING_VER="#b5ada6ff"     # Кольцо при проверке
+RING_WRONG="#6a4a3aff"   # Кольцо при ошибке (тёплый тёмно-красный)
+RING_HL="#f5efe6ff"      # Подсветка кольца при вводе
+KEY="#f5efe6ff"          # Точки ввода
+BS="#6a6258ff"           # Удаление символа
+SEPARATOR="#1c1a18ff"    # Разделитель
+INSIDE="#0c0b0a00"       # Внутри кольца (прозрачный)
+INSIDE_VER="#0c0b0a00"
+INSIDE_WRONG="#0c0b0a00"
+LINE="#00000000"         # Линия (прозрачная)
 
-static const int failonclear = 1;
-SLOCKCONFIG
+# Скриншот + размытие + затемнение
+TMPIMG="/tmp/lockscreen.png"
+scrot -o "$TMPIMG"
+convert "$TMPIMG" \
+    -blur 0x20 \
+    -modulate 40 \
+    -fill '#0c0b0a80' -draw 'rectangle 0,0 9999,9999' \
+    "$TMPIMG"
 
-    sudo make clean install
+# Запуск i3lock-color
+i3lock \
+    --image="$TMPIMG" \
+    --nofork \
+    \
+    --indicator \
+    --clock \
+    --pass-media-keys \
+    --pass-screen-keys \
+    --pass-volume-keys \
+    \
+    --radius=120 \
+    --ring-width=8 \
+    \
+    --insidecolor="$INSIDE" \
+    --insidevercolor="$INSIDE_VER" \
+    --insidewrongcolor="$INSIDE_WRONG" \
+    \
+    --ringcolor="$RING" \
+    --ringvercolor="$RING_VER" \
+    --ringwrongcolor="$RING_WRONG" \
+    \
+    --line-uses-ring \
+    --linecolor="$LINE" \
+    --separatorcolor="$SEPARATOR" \
+    \
+    --keyhlcolor="$KEY" \
+    --bshlcolor="$BS" \
+    \
+    --verifcolor="$FG" \
+    --wrongcolor="$ACCENT" \
+    --modifcolor="$FG" \
+    \
+    --timecolor="$FG" \
+    --datecolor="$FG" \
+    --layoutcolor="$FG" \
+    --greetercolor="$FG" \
+    \
+    --timestr="%H:%M" \
+    --datestr="%a, %d %b" \
+    --veriftext="" \
+    --wrongtext="" \
+    --noinputtext="" \
+    --locktext="" \
+    --lockfailedtext="" \
+    --greetertext="" \
+    \
+    --time-font="JetBrains Mono" \
+    --date-font="JetBrains Mono" \
+    --verif-font="JetBrains Mono" \
+    --wrong-font="JetBrains Mono" \
+    --greeter-font="JetBrains Mono" \
+    \
+    --timesize=48 \
+    --datesize=18 \
+    \
+    --time-align=0 \
+    --date-align=0 \
+    --ignore-empty-password \
+    --show-failed-attempts
 
-    # КРИТИЧНО! Устанавливаем SUID-бит, иначе slock не сможет проверить пароль
-    sudo chmod u+s /usr/local/bin/slock
+# Очистка
+rm -f "$TMPIMG"
+LOCKSCREEN
 
-    # Проверяем
-    if [ -u /usr/local/bin/slock ]; then
-        log "slock установлен с правильными SUID-правами!"
-    else
-        warn "SUID-бит не установлен! Установите вручную: sudo chmod u+s /usr/local/bin/slock"
-    fi
+    chmod +x ~/bin/lockscreen
+    log "Скрипт блокировки ~/bin/lockscreen создан"
+}
 
-    cd ~/suckless
+# ===================== СКРИНШОТЫ =====================
+create_screenshot_script() {
+    log "Создание скриптов скриншотов..."
+    mkdir -p ~/bin ~/Pictures/Screenshots
+
+    cat > ~/bin/screenshot << 'SCREENSHOT'
+#!/bin/bash
+SCREENSHOT_DIR="$HOME/Pictures/Screenshots"
+mkdir -p "$SCREENSHOT_DIR"
+FILENAME="screenshot_$(date +'%Y-%m-%d_%H-%M-%S').png"
+FILEPATH="$SCREENSHOT_DIR/$FILENAME"
+
+scrot -s "$FILEPATH" 2>/dev/null
+if [ -f "$FILEPATH" ]; then
+    xclip -selection clipboard -t image/png -i "$FILEPATH" 2>/dev/null
+    notify-send "Скриншот" "$FILENAME" -i "$FILEPATH" -t 3000 2>/dev/null
+fi
+SCREENSHOT
+
+    cat > ~/bin/screenshot-full << 'SCREENSHOTFULL'
+#!/bin/bash
+SCREENSHOT_DIR="$HOME/Pictures/Screenshots"
+mkdir -p "$SCREENSHOT_DIR"
+FILENAME="screenshot_$(date +'%Y-%m-%d_%H-%M-%S')_full.png"
+FILEPATH="$SCREENSHOT_DIR/$FILENAME"
+
+scrot "$FILEPATH" 2>/dev/null
+if [ -f "$FILEPATH" ]; then
+    xclip -selection clipboard -t image/png -i "$FILEPATH" 2>/dev/null
+    notify-send "Скриншот" "$FILENAME" -i "$FILEPATH" -t 3000 2>/dev/null
+fi
+SCREENSHOTFULL
+
+    chmod +x ~/bin/screenshot ~/bin/screenshot-full
+    log "Скриншоты → ~/Pictures/Screenshots/"
+}
+
+# ===================== TELEGRAM =====================
+create_telegram_launcher() {
+    log "Создание запускателя Telegram..."
+    mkdir -p ~/bin
+
+    cat > ~/bin/telegram << 'TELEGRAM'
+#!/bin/bash
+if command -v telegram-desktop &>/dev/null; then
+    exec telegram-desktop "$@"
+elif command -v Telegram &>/dev/null; then
+    exec Telegram "$@"
+elif [ -x "/opt/telegram-desktop/Telegram" ]; then
+    exec /opt/telegram-desktop/Telegram "$@"
+else
+    notify-send "Telegram" "Не установлен!" -u critical
+    exit 1
+fi
+TELEGRAM
+
+    chmod +x ~/bin/telegram
 }
 
 # ===================== ALACRITTY =====================
 create_alacritty_config() {
     log "Создание конфига Alacritty..."
-
     mkdir -p ~/.config/alacritty
 
     cat > ~/.config/alacritty/alacritty.toml << 'ALACRITTY'
@@ -485,15 +555,12 @@ multiplier = 3
 
 [font]
 size = 13.0
-
 [font.normal]
 family = "JetBrains Mono"
 style = "Regular"
-
 [font.bold]
 family = "JetBrains Mono"
 style = "Bold"
-
 [font.italic]
 family = "JetBrains Mono"
 style = "Italic"
@@ -513,14 +580,6 @@ cursor  = "#f5efe6"
 [colors.selection]
 text       = "#0c0b0a"
 background = "#3a3632"
-
-[colors.search.matches]
-foreground = "#0c0b0a"
-background = "#b5ada6"
-
-[colors.search.focused_match]
-foreground = "#0c0b0a"
-background = "#f5efe6"
 
 [colors.normal]
 black   = "#0c0b0a"
@@ -542,16 +601,6 @@ magenta = "#b5ada6"
 cyan    = "#7a7268"
 white   = "#f5efe6"
 
-[colors.dim]
-black   = "#0c0b0a"
-red     = "#6a6258"
-green   = "#5a5248"
-yellow  = "#7a7268"
-blue    = "#4a4238"
-magenta = "#6a6258"
-cyan    = "#3a3632"
-white   = "#8a8278"
-
 [keyboard]
 bindings = [
     { key = "V",        mods = "Control|Shift", action = "Paste" },
@@ -572,46 +621,11 @@ bindings = [
 [mouse]
 hide_when_typing = true
 ALACRITTY
-
-    log "Alacritty настроен"
 }
 
-# ===================== STALONETRAY (СИСТЕМНЫЙ ТРЕЙ) =====================
-create_tray_config() {
-    log "Создание конфига трея (stalonetray)..."
-
-    cat > ~/.stalonetrayrc << 'TRAY'
-# Stalonetray — системный трей для DWM
-
-# Позиция в правом верхнем углу
-geometry 1x1-0+0
-sticky true
-window_type dock
-window_layer top
-
-# Внешний вид
-background "#0c0b0a"
-kludges force_icons_size
-icon_gravity NE
-icon_size 18
-slot_size 24
-grow_gravity NE
-
-# Границы
-window_strut auto
-skip_taskbar true
-
-# Максимальная ширина
-max_geometry 10x1-0+0
-TRAY
-
-    log "Stalonetray настроен"
-}
-
-# ===================== ОТКЛЮЧЕНИЕ АКСЕЛЕРАЦИИ МЫШИ =====================
+# ===================== МЫШЬ =====================
 create_mouse_config() {
     log "Отключение акселерации мыши..."
-
     sudo mkdir -p /etc/X11/xorg.conf.d
     sudo tee /etc/X11/xorg.conf.d/50-mouse-accel.conf > /dev/null << 'MOUSECONF'
 Section "InputClass"
@@ -621,7 +635,6 @@ Section "InputClass"
     Option "AccelSpeed" "0"
     Option "TransformationMatrix" "1 0 0 0 1 0 0 0 1"
 EndSection
-
 Section "InputClass"
     Identifier "Touchpad - No Acceleration"
     MatchIsTouchpad "yes"
@@ -629,81 +642,91 @@ Section "InputClass"
     Option "AccelSpeed" "0"
 EndSection
 MOUSECONF
-
-    log "Акселерация мыши отключена"
 }
 
-# ===================== НОЧНОЙ РЕЖИМ =====================
+# ===================== НОЧНОЙ РЕЖИМ + SYSTEMD АВТОЗАГРУЗКА =====================
 create_nightshift() {
-    log "Создание автозатемнения..."
-
+    log "Создание и автозагрузка ночного режима..."
     mkdir -p ~/bin
 
     cat > ~/bin/nightshift << 'NIGHTSHIFT'
 #!/bin/bash
-get_gamma_and_brightness() {
-    local hour=$1
-    local minute=$2
-    local total_minutes=$(( hour * 60 + minute ))
-    local brightness gamma_r gamma_g gamma_b
+get_values() {
+    local h=$1 m=$2
+    local t=$(( h * 60 + m ))
+    local br gr gg gb
 
-    if [ $total_minutes -ge 360 ] && [ $total_minutes -lt 540 ]; then
-        local progress=$(echo "scale=4; ($total_minutes - 360) / 180" | bc)
-        brightness=$(echo "scale=4; 0.85 + 0.15 * $progress" | bc)
-        gamma_r="1.0"
-        gamma_g=$(echo "scale=4; 0.90 + 0.10 * $progress" | bc)
-        gamma_b=$(echo "scale=4; 0.80 + 0.20 * $progress" | bc)
-    elif [ $total_minutes -ge 540 ] && [ $total_minutes -lt 1080 ]; then
-        brightness="1.0"
-        gamma_r="1.0"; gamma_g="1.0"; gamma_b="1.0"
-    elif [ $total_minutes -ge 1080 ] && [ $total_minutes -lt 1260 ]; then
-        local progress=$(echo "scale=4; ($total_minutes - 1080) / 180" | bc)
-        brightness=$(echo "scale=4; 1.0 - 0.20 * $progress" | bc)
-        gamma_r="1.0"
-        gamma_g=$(echo "scale=4; 1.0 - 0.12 * $progress" | bc)
-        gamma_b=$(echo "scale=4; 1.0 - 0.25 * $progress" | bc)
-    elif [ $total_minutes -ge 1260 ] && [ $total_minutes -lt 1440 ]; then
-        local progress=$(echo "scale=4; ($total_minutes - 1260) / 180" | bc)
-        brightness=$(echo "scale=4; 0.80 - 0.10 * $progress" | bc)
-        gamma_r="1.0"
-        gamma_g=$(echo "scale=4; 0.88 - 0.05 * $progress" | bc)
-        gamma_b=$(echo "scale=4; 0.75 - 0.10 * $progress" | bc)
+    if [ $t -ge 360 ] && [ $t -lt 540 ]; then
+        local p=$(echo "scale=4; ($t - 360) / 180" | bc)
+        br=$(echo "scale=4; 0.85 + 0.15 * $p" | bc)
+        gr="1.0"
+        gg=$(echo "scale=4; 0.90 + 0.10 * $p" | bc)
+        gb=$(echo "scale=4; 0.80 + 0.20 * $p" | bc)
+    elif [ $t -ge 540 ] && [ $t -lt 1080 ]; then
+        br="1.0"; gr="1.0"; gg="1.0"; gb="1.0"
+    elif [ $t -ge 1080 ] && [ $t -lt 1260 ]; then
+        local p=$(echo "scale=4; ($t - 1080) / 180" | bc)
+        br=$(echo "scale=4; 1.0 - 0.20 * $p" | bc)
+        gr="1.0"
+        gg=$(echo "scale=4; 1.0 - 0.12 * $p" | bc)
+        gb=$(echo "scale=4; 1.0 - 0.25 * $p" | bc)
+    elif [ $t -ge 1260 ] && [ $t -lt 1440 ]; then
+        local p=$(echo "scale=4; ($t - 1260) / 180" | bc)
+        br=$(echo "scale=4; 0.80 - 0.10 * $p" | bc)
+        gr="1.0"
+        gg=$(echo "scale=4; 0.88 - 0.05 * $p" | bc)
+        gb=$(echo "scale=4; 0.75 - 0.10 * $p" | bc)
     else
-        brightness="0.70"
-        gamma_r="1.0"; gamma_g="0.83"; gamma_b="0.65"
+        br="0.70"; gr="1.0"; gg="0.83"; gb="0.65"
     fi
-    echo "$brightness $gamma_r $gamma_g $gamma_b"
-}
-
-apply_settings() {
-    local hour=$(date +%-H)
-    local minute=$(date +%-M)
-    local values=$(get_gamma_and_brightness $hour $minute)
-    local brightness=$(echo "$values" | awk '{print $1}')
-    local gr=$(echo "$values" | awk '{print $2}')
-    local gg=$(echo "$values" | awk '{print $3}')
-    local gb=$(echo "$values" | awk '{print $4}')
-
-    for output in $(xrandr --query | grep " connected" | awk '{print $1}'); do
-        xrandr --output "$output" --brightness "$brightness" --gamma "${gr}:${gg}:${gb}" 2>/dev/null
-    done
+    echo "$br $gr $gg $gb"
 }
 
 while true; do
-    apply_settings
+    vals=$(get_values $(date +%-H) $(date +%-M))
+    br=$(echo "$vals" | awk '{print $1}')
+    gr=$(echo "$vals" | awk '{print $2}')
+    gg=$(echo "$vals" | awk '{print $3}')
+    gb=$(echo "$vals" | awk '{print $4}')
+
+    for o in $(xrandr --query | grep " connected" | awk '{print $1}'); do
+        xrandr --output "$o" --brightness "$br" --gamma "${gr}:${gg}:${gb}" 2>/dev/null
+    done
     sleep 60
 done
 NIGHTSHIFT
-
     chmod +x ~/bin/nightshift
 
     cat > ~/bin/nightshift-reset << 'NSRESET'
 #!/bin/bash
-for output in $(xrandr --query | grep " connected" | awk '{print $1}'); do
-    xrandr --output "$output" --brightness 1.0 --gamma 1.0:1.0:1.0
+for o in $(xrandr --query | grep " connected" | awk '{print $1}'); do
+    xrandr --output "$o" --brightness 1.0 --gamma 1.0:1.0:1.0
 done
+echo "Экран сброшен."
 NSRESET
     chmod +x ~/bin/nightshift-reset
+
+    # Systemd user service для автозагрузки
+    mkdir -p ~/.config/systemd/user
+    cat > ~/.config/systemd/user/nightshift.service << NSSERVICE
+[Unit]
+Description=Nightshift — автозатемнение экрана по времени суток
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=$HOME/bin/nightshift
+Restart=always
+RestartSec=5
+Environment=DISPLAY=:0
+
+[Install]
+WantedBy=default.target
+NSSERVICE
+
+    systemctl --user daemon-reload
+    systemctl --user enable nightshift.service
+    log "Nightshift настроен как системная служба (автозагрузка)"
 
     if ! grep -q 'export PATH="$HOME/bin:$PATH"' ~/.bashrc; then
         echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc
@@ -713,7 +736,6 @@ NSRESET
 # ===================== СТАТУС-БАР =====================
 create_statusbar() {
     log "Создание статус-бара..."
-
     cat > ~/suckless/dwm-statusbar.sh << 'STATUSBAR'
 #!/bin/bash
 while true; do
@@ -733,36 +755,28 @@ while true; do
 
     VOL=$(pactl get-sink-volume @DEFAULT_SINK@ 2>/dev/null | head -1 | awk '{print $5}' || echo "N/A")
     MUTE=$(pactl get-sink-mute @DEFAULT_SINK@ 2>/dev/null | awk '{print $2}')
-    if [ "$MUTE" = "yes" ]; then
-        VOL="MUTED"
-    else
-        VOL="VOL:$VOL"
-    fi
+    if [ "$MUTE" = "yes" ]; then VOL="MUTED"; else VOL="VOL:$VOL"; fi
 
     RAM=$(free -h | awk '/Mem:/ {print $3"/"$2}')
     CPU=$(top -bn1 | grep "Cpu(s)" | awk '{print int($2+$4)}')
 
-    # Отступ справа под трей (примерно 200px = ~15 пробелов)
-    xsetroot -name " CPU:${CPU}% | RAM:${RAM} | ${VOL}${BAT} | ${DATE} ${TIME}                     "
+    xsetroot -name " CPU:${CPU}% | RAM:${RAM} | ${VOL}${BAT} | ${DATE} ${TIME} "
     sleep 2
 done
 STATUSBAR
-
     chmod +x ~/suckless/dwm-statusbar.sh
 }
 
 # ===================== XINITRC =====================
 create_xinitrc() {
     log "Создание .xinitrc..."
-
     cat > ~/.xinitrc << 'XINITRC'
 #!/bin/sh
-# ─── Системные раскладки клавиатуры настроены в системе, не трогаем ───
 
 # Курсор
 xsetroot -cursor_name left_ptr &
 
-# Отключение акселерации мыши через xinput
+# Мышь без акселерации
 sleep 1
 for id in $(xinput list --id-only 2>/dev/null); do
     xinput set-prop "$id" "libinput Accel Profile Enabled" 0 1 2>/dev/null
@@ -773,37 +787,34 @@ done &
 picom --config ~/.config/picom/picom.conf -b 2>/dev/null &
 xsetroot -solid "#0c0b0a" &
 
-# Уведомления и D-Bus / polkit
+# Уведомления и polkit
 dunst &
 lxsession &
 
-# ─── СИСТЕМНЫЙ ТРЕЙ ───
+# Трей-приложения (если systray патч не применился — запустится stalonetray)
 sleep 2
-stalonetray &
+nm-applet &
+blueman-applet 2>/dev/null &
 
-# ─── ИКОНКИ В ТРЕЕ ───
-sleep 3
-nm-applet &                          # Wi-Fi / сеть
-blueman-applet &                     # Bluetooth
-pasystray 2>/dev/null &              # Звук (если установлен)
-
-# ─── АВТОБЛОКИРОВКА ───
+# Автоблокировка (10 минут, не блокирует при видео/аудио)
 if command -v xidlehook &>/dev/null; then
     xidlehook \
         --not-when-fullscreen \
         --not-when-audio \
-        --timer 600 'slock' '' &
+        --timer 600 "$HOME/bin/lockscreen" '' &
 fi
 
-# ─── СТАТУС-БАР И НОЧНОЙ РЕЖИМ ───
+# Статус-бар
 ~/suckless/dwm-statusbar.sh &
-~/bin/nightshift &
+
+# Ночной режим (через systemd, но на всякий случай и здесь)
+if ! systemctl --user is-active --quiet nightshift.service 2>/dev/null; then
+    ~/bin/nightshift &
+fi
 
 exec dwm
 XINITRC
-
     chmod +x ~/.xinitrc
-    log ".xinitrc создан"
 }
 
 # ===================== PICOM =====================
@@ -817,11 +828,6 @@ shadow-offset-x = -7;
 shadow-offset-y = -7;
 shadow-opacity = 0.6;
 shadow-color = "#0c0b0a";
-
-shadow-exclude = [
-    "class_g = 'stalonetray'",
-    "name = 'stalonetray'"
-];
 
 inactive-opacity = 0.95;
 active-opacity = 1.0;
@@ -912,7 +918,6 @@ gtk-icon-theme-name=Adwaita
 gtk-font-name=JetBrains Mono 11
 gtk-application-prefer-dark-theme=1
 GTK3
-
     cat > ~/.gtkrc-2.0 << 'GTK2'
 gtk-theme-name="Adwaita-dark"
 gtk-icon-theme-name="Adwaita"
@@ -938,63 +943,32 @@ SESSION
 create_cheatsheet() {
     cat > ~/dwm-keybinds.txt << 'CHEAT'
 ╔══════════════════════════════════════════════════════════════╗
-║                    DWM KEYBINDINGS v9                        ║
+║                    DWM KEYBINDINGS v10                       ║
 ╠══════════════════════════════════════════════════════════════╣
-║  ЗАПУСК                                                      ║
 ║  Super + Enter        — Терминал (Alacritty)                 ║
 ║  Super + D            — dmenu                                ║
 ║  Super + W            — Zen Browser                          ║
-║  Super + E            — Файловый менеджер                    ║
+║  Super + E            — Файловый менеджер (lf)               ║
 ║  Super + T            — Telegram                             ║
 ║  Super + Shift + S    — Steam                                ║
-║  Print Screen         — Скриншот области                     ║
+║  Print                — Скриншот области → ~/Pictures/       ║
 ║  Shift + Print        — Скриншот всего экрана                ║
-║                                                              ║
-║  БЛОКИРОВКА                                                  ║
-║  Super + Shift + L    — Заблокировать                        ║
-║  Автоблокировка       — Через 10 минут простоя               ║
-║                                                              ║
-║  ОКНА                                                        ║
-║  Super + J/K          — Фокус                                ║
+║  Super + Shift + L    — Заблокировать (i3lock-color)         ║
+║  Super + J/K          — Переключение окон                    ║
 ║  Super + H/L          — Размер master                        ║
 ║  Super + Shift+Enter  — Сделать master                       ║
-║  Super + Shift + Q    — Закрыть                              ║
-║  Super + ;            — Tile   |  Super + Shift + ; = Float  ║
+║  Super + Shift + Q    — Закрыть окно                         ║
+║  Super + ;            — Tile  | Super+Shift+; — Float        ║
 ║  Super + M            — Monocle                              ║
 ║  Super + N            — Переключить раскладку                ║
 ║  Super + Shift + N    — Плавающее окно                       ║
 ║  Super + B            — Скрыть панель                        ║
-║                                                              ║
-║  ТЕГИ (рабочие столы)                                        ║
-║  Super + 1..9         — Переключиться                        ║
-║  Super + Shift + 1..9 — Перенести окно                       ║
-║                                                              ║
-║  ВЫХОД                                                       ║
+║  Super + 1..9         — Теги (рабочие столы)                 ║
+║  Super + Shift + 1..9 — Перенести окно на тег                ║
 ║  Ctrl+Super+Shift+Q   — Выйти из DWM                         ║
+║  nightshift-reset     — Сбросить цвет экрана                 ║
 ╚══════════════════════════════════════════════════════════════╝
 CHEAT
-}
-
-# ===================== ПРОВЕРКА SLOCK =====================
-verify_slock() {
-    log "Проверка блокировщика slock..."
-
-    if [ ! -f /usr/local/bin/slock ]; then
-        warn "slock не найден в /usr/local/bin/!"
-        return
-    fi
-
-    if [ -u /usr/local/bin/slock ]; then
-        log "✓ slock имеет SUID-бит — блокировка будет работать"
-    else
-        warn "✗ SUID-бит отсутствует, устанавливаю..."
-        sudo chmod u+s /usr/local/bin/slock
-        if [ -u /usr/local/bin/slock ]; then
-            log "✓ SUID установлен"
-        else
-            err "Не удалось установить SUID! Выполните вручную: sudo chmod u+s /usr/local/bin/slock"
-        fi
-    fi
 }
 
 # ===================== MAIN =====================
@@ -1002,7 +976,7 @@ main() {
     echo ""
     echo -e "${CYAN}╔══════════════════════════════════════════════╗${NC}"
     echo -e "${CYAN}║   DWM Warm Monochrome — CachyOS / Arch      ║${NC}"
-    echo -e "${CYAN}║   v9.0  Трей · Скриншоты · Исправления      ║${NC}"
+    echo -e "${CYAN}║   v10  i3lock-color · Systray · Nightshift   ║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
 
@@ -1012,13 +986,11 @@ main() {
 
     build_dwm
     build_dmenu
-    build_slock
-    verify_slock
 
+    create_lockscreen
     create_screenshot_script
     create_telegram_launcher
     create_alacritty_config
-    create_tray_config
     create_mouse_config
     create_nightshift
     create_statusbar
@@ -1035,17 +1007,15 @@ main() {
     echo -e "${GREEN}║          УСТАНОВКА ЗАВЕРШЕНА!                ║${NC}"
     echo -e "${GREEN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
-    info "Что нового в v9.0:"
-    echo "  ✓ Скриншоты → ~/Pictures/Screenshots/"
-    echo "  ✓ Print Screen — область, Shift+Print — весь экран"
-    echo "  ✓ Скриншоты копируются в буфер обмена автоматически"
-    echo "  ✓ slock: SUID-бит установлен (блокировка работает)"
-    echo "  ✓ Telegram — универсальный запускатель ~/bin/telegram"
-    echo "  ✓ Системный трей: stalonetray + nm-applet + blueman"
-    echo "  ✓ Раскладка клавиатуры — не трогаем системную настройку"
+    info "Что нового в v10:"
+    echo "  ✓ i3lock-color — размытый фон + кольцо ввода (тёплый монохром)"
+    echo "  ✓ DWM systray патч — трей встроен в бар"
+    echo "  ✓ Nightshift — systemd автозагрузка"
+    echo "  ✓ Убран дублирующий setxkbmap"
     echo ""
-    info "Проверьте блокировку сейчас: slock"
-    info "Проверьте Telegram: ~/bin/telegram"
+    info "Проверить блокировку: ~/bin/lockscreen"
+    info "Проверить Telegram:   ~/bin/telegram"
+    info "Сбросить экран:       nightshift-reset"
     echo ""
     info "Запуск: перезагрузите ПК → выберите 'DWM'"
     echo ""
