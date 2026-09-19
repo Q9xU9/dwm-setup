@@ -1,6 +1,6 @@
 #!/bin/bash
 # install.sh — Полная установка DWM окружения на CachyOS/Arch
-# Версия 5.0 — Обход блокировок через Gitee, Codeberg и Wayback Machine
+# Версия 5.1 — Исправлена компиляция dmenu (прямая запись config.h)
 
 set -e
 
@@ -65,7 +65,7 @@ install_yay() {
 install_aur_packages() {
     log "Установка приложений из AUR..."
 
-    # Устанавливаем Zen Browser (мягкая установка, не уронит скрипт при ошибке)
+    # Устанавливаем Zen Browser
     info "Установка Zen Browser..."
     yay -S --needed --noconfirm zen-browser-bin || \
     yay -S --needed --noconfirm zen-browser || \
@@ -76,7 +76,7 @@ install_aur_packages() {
     yay -S --needed --noconfirm telegram-desktop || \
         sudo pacman -S --needed --noconfirm telegram-desktop
 
-    # Proton CachyOS (если не найдет — не страшно, Steam сам скачает Proton-GE)
+    # Proton CachyOS
     info "Установка Proton..."
     yay -S --needed --noconfirm proton-cachyos-bin 2>/dev/null || \
     yay -S --needed --noconfirm proton-cachyos 2>/dev/null || \
@@ -114,7 +114,6 @@ download_tool() {
     warn "Git-репозитории недоступны. Скачиваем стабильный архив из Wayback Machine..."
     if wget --timeout=10 -qO "${name}.tar.gz" "$archive_url" || curl -L --connect-timeout 10 -o "${name}.tar.gz" "$archive_url"; then
         tar -xzf "${name}.tar.gz"
-        # Переименовываем распакованную папку в простое имя (например dwm-6.5 -> dwm)
         local extracted_dir
         extracted_dir=$(tar -tf "${name}.tar.gz" | head -1 | cut -f1 -d"/")
         mv "$extracted_dir" "$name"
@@ -312,13 +311,35 @@ build_dmenu() {
         "https://web.archive.org/web/20240401000000/https://dl.suckless.org/tools/dmenu-5.3.tar.gz"
 
     cd ~/suckless/dmenu
-    sed -i 's/static const char \*fonts\[\] = {.*/static const char *fonts[] = { "JetBrains Mono:size=11" };/' config.def.h
-    sed -i 's/\[SchemeNorm\] = .*/[SchemeNorm] = { "#b0b0b0", "#0a0a0a" },/' config.def.h
-    sed -i 's/\[SchemeSel\] = .*/[SchemeSel]  = { "#ffffff", "#1a1a1a" },/' config.def.h
-    sed -i 's/\[SchemeOut\] = .*/[SchemeOut]  = { "#000000", "#3a3a3a" },/' config.def.h
-    sed -i 's/static unsigned int lines.*/static unsigned int lines = 20;/' config.def.h
 
-    cp config.def.h config.h
+    # ПРЯМАЯ И ЧИСТАЯ ЗАПИСЬ CONFIG.H ДЛЯ DMENU (БЕЗ ИСПОЛЬЗОВАНИЯ FRAGILE SED)
+    cat > config.h << 'DMENUCONFIG'
+/* See LICENSE file for copyright and license details. */
+/* Default settings; can be overriden by command line. */
+
+static int topbar = 1;                      /* -b  option; if 0, dmenu appears at the bottom     */
+
+/* -fn option overrides fonts[0]; default X11 font or font set */
+static const char *fonts[] = {
+	"JetBrains Mono:size=11"
+};
+static const char *prompt      = NULL;      /* -p  option; prompt to the left of input field    */
+static const char *colors[SchemeLast][2] = {
+	/*     fg         bg       */
+	[SchemeNorm] = { "#b0b0b0", "#0a0a0a" },
+	[SchemeSel]  = { "#ffffff", "#1a1a1a" },
+	[SchemeOut]  = { "#000000", "#3a3a3a" },
+};
+/* -l option; if nonzero, dmenu uses vertical list with given number of lines */
+static unsigned int lines      = 20;
+
+/*
+ * Characters not considered part of a word while deleting words
+ * for example: " gy;!·\"#$%&/()=+_-,.:;*^`[]{}|"
+ */
+static const char worddelimiters[] = " ";
+DMENUCONFIG
+
     sudo make clean install
     log "dmenu успешно скомпилирован и установлен!"
     cd ~/suckless
@@ -565,7 +586,7 @@ main() {
     echo ""
     echo -e "${CYAN}╔══════════════════════════════════════════════╗${NC}"
     echo -e "${CYAN}║   DWM Monochrome Setup — CachyOS / Arch     ║${NC}"
-    echo -e "${CYAN}║   Версия 5.0 (Максимальный обход блоков)    ║${NC}"
+    echo -e "${CYAN}║   Версия 5.1 (Исправленная dmenu сборка)    ║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
 
