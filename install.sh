@@ -27,7 +27,7 @@ install_packages() {
     sudo pacman -S --needed --noconfirm \
         base-devel git xorg xorg-xinit xorg-xrandr xorg-xsetroot \
         libx11 libxft libxinerama freetype2 fontconfig \
-        picom nitrogen dunst \
+        picom dunst \
         xclip xdotool xsel \
         pulseaudio pavucontrol alsa-utils \
         noto-fonts noto-fonts-cjk ttf-jetbrains-mono ttf-font-awesome \
