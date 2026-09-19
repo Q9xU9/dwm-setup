@@ -1,9 +1,9 @@
 #!/bin/bash
 # install.sh — Полная установка DWM окружения на CachyOS/Arch
-# Версия 3.0 — надежная загрузка исходников (без зависаний git и запросов паролей)
+# Версия 4.0 — Умный загрузчик (гарантирует скачивание DWM/st/dmenu при любых блокировках)
 
 set -e
-export GIT_TERMINAL_PROMPT=0  # Запретить git запрашивать пароли в терминале
+export GIT_TERMINAL_PROMPT=0  # Запретить git требовать пароли
 
 # ===================== ЦВЕТА =====================
 RED='\033[0;31m'
@@ -19,10 +19,10 @@ info()  { echo -e "${CYAN}[i]${NC} $1"; }
 
 # ===================== ЗАВИСИМОСТИ =====================
 install_packages() {
-    log "Обновление системы..."
+    log "Обновление системных репозиториев..."
     sudo pacman -Syu --noconfirm
 
-    log "Установка базовых пакетов..."
+    log "Установка системных зависимостей..."
     sudo pacman -S --needed --noconfirm \
         base-devel git xorg xorg-xinit xorg-xrandr xorg-xsetroot \
         libx11 libxft libxinerama freetype2 fontconfig \
@@ -39,14 +39,14 @@ install_packages() {
         networkmanager network-manager-applet \
         openssh
 
-    log "Включение NetworkManager..."
+    log "Включение службы NetworkManager..."
     sudo systemctl enable --now NetworkManager 2>/dev/null || true
 }
 
 # ===================== YAY (AUR HELPER) =====================
 install_yay() {
     if ! command -v yay &>/dev/null; then
-        log "Установка yay..."
+        log "Установка AUR-помощника yay..."
         cd /tmp
         rm -rf yay
         git clone https://aur.archlinux.org/yay.git
@@ -54,18 +54,18 @@ install_yay() {
         makepkg -si --noconfirm
         cd ~
     else
-        log "yay уже установлен"
+        log "yay уже установлен в системе"
     fi
 }
 
 # ===================== AUR ПАКЕТЫ =====================
 install_aur_packages() {
-    log "Установка AUR пакетов..."
+    log "Установка пользовательских пакетов из AUR..."
 
     # Zen Browser
     yay -S --needed --noconfirm zen-browser-bin 2>/dev/null || \
     yay -S --needed --noconfirm zen-browser 2>/dev/null || \
-        warn "Zen Browser не найден в AUR, установите вручную"
+        warn "Zen Browser не найден в AUR, установите его позже вручную"
 
     # Telegram
     yay -S --needed --noconfirm telegram-desktop || \
@@ -74,25 +74,72 @@ install_aur_packages() {
     # Proton CachyOS
     yay -S --needed --noconfirm proton-cachyos 2>/dev/null || \
     yay -S --needed --noconfirm proton-ge-custom-bin 2>/dev/null || \
-        warn "Proton CachyOS не найден, установите через Steam"
+        warn "Proton CachyOS не найден в AUR. Вы сможете установить Proton-GE прямо через Steam"
+}
+
+# ===================== УМНЫЙ МНОГОУРОВНЕВЫЙ ЗАГРУЗЧИК =====================
+download_suckless_tool() {
+    local name=$1
+    local tar_url=$2
+    local git_mirror_1=$3
+    local git_mirror_2=$4
+
+    log "Загрузка исходного кода $name..."
+    mkdir -p ~/suckless
+    cd ~/suckless
+    rm -rf "$name"
+
+    # Шаг 1: Пробуем официальный архив (wget с таймаутом 5 сек)
+    info "Попытка 1: Скачивание официального архива через wget..."
+    if wget --timeout=5 --tries=1 -qO "${name}.tar.gz" "$tar_url"; then
+        local ext_dir
+        ext_dir=$(tar -tf "${name}.tar.gz" | head -1 | cut -f1 -d"/")
+        tar -xzf "${name}.tar.gz"
+        mv "$ext_dir" "$name"
+        rm "${name}.tar.gz"
+        log "$name успешно загружен!"
+        return 0
+    fi
+
+    # Шаг 2: Пробуем официальный архив (curl с таймаутом 5 сек)
+    info "Попытка 2: Скачивание официального архива через curl..."
+    if curl --connect-timeout 5 -sLo "${name}.tar.gz" "$tar_url"; then
+        local ext_dir
+        ext_dir=$(tar -tf "${name}.tar.gz" | head -1 | cut -f1 -d"/")
+        tar -xzf "${name}.tar.gz"
+        mv "$ext_dir" "$name"
+        rm "${name}.tar.gz"
+        log "$name успешно загружен!"
+        return 0
+    fi
+
+    # Шаг 3: Пробуем основное GitHub зеркало
+    info "Попытка 3: Клонирование чистого зеркала с GitHub..."
+    if git clone --depth 1 "$git_mirror_1" "$name" 2>/dev/null; then
+        log "$name успешно клонирован с GitHub!"
+        return 0
+    fi
+
+    # Шаг 4: Пробуем альтернативное GitLab зеркало
+    warn "GitHub недоступен. Попытка 4: Клонирование с GitLab..."
+    if git clone --depth 1 "$git_mirror_2" "$name" 2>/dev/null; then
+        log "$name успешно клонирован с GitLab!"
+        return 0
+    fi
+
+    err "Не удалось загрузить исходный код для $name! Проверьте подключение к интернету."
 }
 
 # ===================== СБОРКА DWM =====================
 build_dwm() {
-    log "Загрузка и сборка DWM..."
-    mkdir -p ~/suckless
-    cd ~/suckless
+    download_suckless_tool "dwm" \
+        "https://dl.suckless.org/dwm/dwm-6.5.tar.gz" \
+        "https://github.com/static-void/dwm.git" \
+        "https://gitlab.com/proshat/dwm.git"
 
-    rm -rf dwm
-    # Скачиваем официальный стабильный релиз архивом (качается мгновенно)
-    wget -qO dwm.tar.gz https://dl.suckless.org/dwm/dwm-6.5.tar.gz || \
-    curl -sLo dwm.tar.gz https://dl.suckless.org/dwm/dwm-6.5.tar.gz
+    cd ~/suckless/dwm
 
-    tar -xzf dwm.tar.gz
-    mv dwm-6.5 dwm
-    rm dwm.tar.gz
-
-    cat > dwm/config.h << 'DWMCONFIG'
+    cat > config.h << 'DWMCONFIG'
 /* ============================================================
  *  DWM config.h — Монохромная тема
  * ============================================================ */
@@ -104,7 +151,6 @@ static const int topbar             = 1;
 static const char *fonts[]          = { "JetBrains Mono:size=11", "Font Awesome 6 Free:size=11" };
 static const char dmenufont[]       = "JetBrains Mono:size=11";
 
-/* Монохромная чёрно-белая палитра */
 static const char col_black[]       = "#000000";
 static const char col_gray1[]       = "#0a0a0a";
 static const char col_gray2[]       = "#1a1a1a";
@@ -116,23 +162,19 @@ static const char col_border[]      = "#444444";
 static const char col_border_sel[]  = "#ffffff";
 
 static const char *colors[][3]      = {
-    /*                 fg          bg          border       */
     [SchemeNorm]   = { col_gray4,  col_gray1,  col_border   },
     [SchemeSel]    = { col_accent, col_gray2,  col_border_sel },
 };
 
-/* Теги */
 static const char *tags[] = { "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX" };
 
 static const Rule rules[] = {
-    /* class              instance  title  tags mask  isfloating  monitor */
     { "Steam",            NULL,     NULL,  1 << 3,    1,          -1 },
     { "TelegramDesktop",  NULL,     NULL,  1 << 2,    0,          -1 },
     { "Gimp",             NULL,     NULL,  0,         1,          -1 },
     { "pavucontrol",      NULL,     NULL,  0,         1,          -1 },
 };
 
-/* Раскладки */
 static const float mfact     = 0.55;
 static const int nmaster     = 1;
 static const int resizehints = 0;
@@ -140,11 +182,10 @@ static const int lockfullscreen = 1;
 
 static const Layout layouts[] = {
     { "[]=",   tile },
-    { "><>",   NULL },    /* floating */
+    { "><>",   NULL },
     { "[M]",   monocle },
 };
 
-/* Клавиши */
 #define MODKEY Mod4Mask
 #define TAGKEYS(KEY,TAG) \
     { MODKEY,                       KEY, view,       {.ui = 1 << TAG} }, \
@@ -175,9 +216,6 @@ static const char *bri_down[]    = { "brightnessctl", "set", "10%-", NULL };
 #include <X11/XF86keysym.h>
 
 static const Key keys[] = {
-    /* modifier                     key                       function        argument */
-
-    /* Запуск программ */
     { MODKEY,                       XK_d,                     spawn,          {.v = dmenucmd } },
     { MODKEY,                       XK_Return,                spawn,          {.v = termcmd } },
     { MODKEY,                       XK_w,                     spawn,          {.v = browsercmd } },
@@ -186,16 +224,13 @@ static const Key keys[] = {
     { MODKEY|ShiftMask,             XK_s,                     spawn,          {.v = steamcmd } },
     { 0,                            XK_Print,                 spawn,          {.v = screenshot } },
 
-    /* Громкость */
     { 0, XF86XK_AudioRaiseVolume,                            spawn,          {.v = vol_up } },
     { 0, XF86XK_AudioLowerVolume,                            spawn,          {.v = vol_down } },
     { 0, XF86XK_AudioMute,                                   spawn,          {.v = vol_mute } },
 
-    /* Яркость */
     { 0, XF86XK_MonBrightnessUp,                             spawn,          {.v = bri_up } },
     { 0, XF86XK_MonBrightnessDown,                           spawn,          {.v = bri_down } },
 
-    /* Управление окнами */
     { MODKEY,                       XK_j,                     focusstack,     {.i = +1 } },
     { MODKEY,                       XK_k,                     focusstack,     {.i = -1 } },
     { MODKEY,                       XK_h,                     setmfact,       {.f = -0.05} },
@@ -205,31 +240,25 @@ static const Key keys[] = {
     { MODKEY|ShiftMask,             XK_Return,                zoom,           {0} },
     { MODKEY,                       XK_Tab,                   view,           {0} },
 
-    /* Закрытие / выход */
     { MODKEY|ShiftMask,             XK_q,                     killclient,     {0} },
     { MODKEY|ControlMask|ShiftMask, XK_q,                     quit,           {0} },
 
-    /* Раскладки */
     { MODKEY,                       XK_f,                     setlayout,      {.v = &layouts[0]} },
     { MODKEY|ShiftMask,             XK_f,                     setlayout,      {.v = &layouts[1]} },
     { MODKEY,                       XK_m,                     setlayout,      {.v = &layouts[2]} },
     { MODKEY,                       XK_space,                 setlayout,      {0} },
     { MODKEY|ShiftMask,             XK_space,                 togglefloating, {0} },
 
-    /* Бар */
     { MODKEY,                       XK_b,                     togglebar,      {0} },
 
-    /* Мониторы */
     { MODKEY,                       XK_comma,                 focusmon,       {.i = -1 } },
     { MODKEY,                       XK_period,                focusmon,       {.i = +1 } },
     { MODKEY|ShiftMask,             XK_comma,                 tagmon,         {.i = -1 } },
     { MODKEY|ShiftMask,             XK_period,                tagmon,         {.i = +1 } },
 
-    /* Все теги */
     { MODKEY,                       XK_0,                     view,           {.ui = ~0 } },
     { MODKEY|ShiftMask,             XK_0,                     tag,            {.ui = ~0 } },
 
-    /* Теги 1-9 */
     TAGKEYS(                        XK_1,                                     0)
     TAGKEYS(                        XK_2,                                     1)
     TAGKEYS(                        XK_3,                                     2)
@@ -256,49 +285,36 @@ static const Button buttons[] = {
 };
 DWMCONFIG
 
-    cd dwm
     sudo make clean install
-    log "DWM успешно установлен"
+    log "DWM успешно собран и установлен в систему!"
     cd ~/suckless
 }
 
 # ===================== СБОРКА ST =====================
 build_st() {
-    log "Загрузка и сборка st (терминал)..."
-    cd ~/suckless
+    download_suckless_tool "st" \
+        "https://dl.suckless.org/st/st-0.9.2.tar.gz" \
+        "https://github.com/static-void/st.git" \
+        "https://github.com/gorgone/st.git"
 
-    rm -rf st
-    wget -qO st.tar.gz https://dl.suckless.org/st/st-0.9.2.tar.gz || \
-    curl -sLo st.tar.gz https://dl.suckless.org/st/st-0.9.2.tar.gz
-
-    tar -xzf st.tar.gz
-    mv st-0.9.2 st
-    rm st.tar.gz
-
-    cd st
+    cd ~/suckless/st
     sed -i 's/static char \*font = .*/static char *font = "JetBrains Mono:pixelsize=16:antialias=true:autohint=true";/' config.def.h
     sed -i 's/static int borderpx.*/static int borderpx = 12;/' config.def.h
 
     cp config.def.h config.h
     sudo make clean install
-    log "st успешно установлен"
+    log "st успешно собран и установлен в систему!"
     cd ~/suckless
 }
 
 # ===================== СБОРКА DMENU =====================
 build_dmenu() {
-    log "Загрузка и сборка dmenu..."
-    cd ~/suckless
+    download_suckless_tool "dmenu" \
+        "https://dl.suckless.org/tools/dmenu-5.3.tar.gz" \
+        "https://github.com/static-void/dmenu.git" \
+        "https://github.com/gorgone/dmenu.git"
 
-    rm -rf dmenu
-    wget -qO dmenu.tar.gz https://dl.suckless.org/tools/dmenu-5.3.tar.gz || \
-    curl -sLo dmenu.tar.gz https://dl.suckless.org/tools/dmenu-5.3.tar.gz
-
-    tar -xzf dmenu.tar.gz
-    mv dmenu-5.3 dmenu
-    rm dmenu.tar.gz
-
-    cd dmenu
+    cd ~/suckless/dmenu
     sed -i 's/static const char \*fonts\[\] = {.*/static const char *fonts[] = { "JetBrains Mono:size=11" };/' config.def.h
     sed -i 's/\[SchemeNorm\] = .*/[SchemeNorm] = { "#b0b0b0", "#0a0a0a" },/' config.def.h
     sed -i 's/\[SchemeSel\] = .*/[SchemeSel]  = { "#ffffff", "#1a1a1a" },/' config.def.h
@@ -307,7 +323,7 @@ build_dmenu() {
 
     cp config.def.h config.h
     sudo make clean install
-    log "dmenu успешно установлен"
+    log "dmenu успешно собран и установлен в систему!"
     cd ~/suckless
 }
 
@@ -317,8 +333,6 @@ create_statusbar() {
 
     cat > ~/suckless/dwm-statusbar.sh << 'STATUSBAR'
 #!/bin/bash
-# DWM Status Bar — Монохромный
-
 while true; do
     DATE=$(date +'%a %d %b')
     TIME=$(date +'%H:%M')
@@ -346,7 +360,6 @@ while true; do
     CPU=$(top -bn1 | grep "Cpu(s)" | awk '{print int($2+$4)}')
 
     xsetroot -name " CPU:${CPU}% | RAM:${RAM} | ${VOL}${BAT} | ${DATE} ${TIME} "
-
     sleep 2
 done
 STATUSBAR
@@ -361,7 +374,6 @@ create_xinitrc() {
 
     cat > ~/.xinitrc << 'XINITRC'
 #!/bin/sh
-
 setxkbmap -layout us,ru -option grp:alt_shift_toggle &
 xsetroot -cursor_name left_ptr &
 picom --config ~/.config/picom/picom.conf -b 2>/dev/null &
@@ -380,7 +392,6 @@ XINITRC
 # ===================== PICOM =====================
 create_picom_config() {
     log "Создание конфига picom..."
-
     mkdir -p ~/.config/picom
     cat > ~/.config/picom/picom.conf << 'PICOM'
 backend = "xrender";
@@ -403,14 +414,12 @@ fade-delta = 5;
 corner-radius = 0;
 vsync = true;
 PICOM
-
     log "Picom настроен"
 }
 
 # ===================== DUNST =====================
 create_dunst_config() {
     log "Создание конфига dunst..."
-
     mkdir -p ~/.config/dunst
     cat > ~/.config/dunst/dunstrc << 'DUNST'
 [global]
@@ -441,14 +450,12 @@ create_dunst_config() {
     frame_color = "#ffffff"
     timeout = 0
 DUNST
-
     log "Dunst настроен"
 }
 
 # ===================== LF =====================
 create_lf_config() {
     log "Создание конфига lf..."
-
     mkdir -p ~/.config/lf
     cat > ~/.config/lf/lfrc << 'LFRC'
 set ratios 1:2:3
@@ -476,14 +483,12 @@ cmd open ${{
     esac
 }}
 LFRC
-
     log "lf настроен"
 }
 
 # ===================== GTK ТЕМА =====================
 create_gtk_theme() {
     log "Настройка тёмной GTK темы..."
-
     mkdir -p ~/.config/gtk-3.0
     cat > ~/.config/gtk-3.0/settings.ini << 'GTK3'
 [Settings]
@@ -498,14 +503,12 @@ gtk-theme-name="Adwaita-dark"
 gtk-icon-theme-name="Adwaita"
 gtk-font-name="JetBrains Mono 11"
 GTK2
-
     log "GTK тема настроена"
 }
 
 # ===================== СЕССИЯ DWM =====================
 create_session() {
     log "Создание файла сессии DWM..."
-
     sudo mkdir -p /usr/share/xsessions
     sudo tee /usr/share/xsessions/dwm.desktop > /dev/null << 'SESSION'
 [Desktop Entry]
@@ -516,14 +519,12 @@ Exec=/usr/local/bin/dwm
 Icon=dwm
 Type=XSession
 SESSION
-
     log "Сессия DWM создана"
 }
 
-# ===================== СПРАВКА =====================
+# ===================== SPRAVKA =====================
 create_cheatsheet() {
     log "Создание шпаргалки..."
-
     cat > ~/dwm-keybinds.txt << 'CHEAT'
 ╔══════════════════════════════════════════════════════════════╗
 ║                    DWM KEYBINDINGS                          ║
@@ -559,7 +560,6 @@ create_cheatsheet() {
 ║                                                              ║
 ╚══════════════════════════════════════════════════════════════╝
 CHEAT
-
     log "Шпаргалка: ~/dwm-keybinds.txt"
 }
 
@@ -568,7 +568,7 @@ main() {
     echo ""
     echo -e "${CYAN}╔══════════════════════════════════════════════╗${NC}"
     echo -e "${CYAN}║   DWM Monochrome Setup — CachyOS / Arch     ║${NC}"
-    echo -e "${CYAN}║   Версия 3.0 (Стабильная сборка)            ║${NC}"
+    echo -e "${CYAN}║   Версия 4.0 (Умный загрузчик)             ║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
 
@@ -594,9 +594,7 @@ main() {
     echo -e "${GREEN}║          УСТАНОВКА ЗАВЕРШЕНА!                ║${NC}"
     echo -e "${GREEN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
-    info "Запуск:"
-    echo "  Display Manager → выберите сессию 'DWM'"
-    echo "  Либо из TTY: startx"
+    info "Для запуска DWM перезагрузите ПК и в окне входа выберите 'DWM'."
     echo ""
 }
 
