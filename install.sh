@@ -1,6 +1,6 @@
 #!/bin/bash
-# install.sh — Полная установка DWM окружения на CachyOS/Arch
-# Версия 11.2 — Расширенная палитра оттенков + автозапуск nightshift
+# install.sh — DWM окружение на CachyOS/Arch
+# Версия 11.4 — Поддержка ly (TUI Display Manager)
 
 set -e
 
@@ -46,7 +46,8 @@ install_packages() {
         imagemagick \
         xsettingsd \
         gnome-themes-extra adwaita-icon-theme \
-        gsettings-desktop-schemas dconf
+        gsettings-desktop-schemas dconf \
+        dbus
 }
 
 # ===================== YAY =====================
@@ -54,9 +55,8 @@ install_yay() {
     if ! command -v yay &>/dev/null; then
         log "Установка yay..."
         if sudo pacman -S --needed --noconfirm yay 2>/dev/null; then
-            log "yay установлен из репозиториев CachyOS!"
+            log "yay установлен!"
         else
-            warn "Сборка yay-bin из AUR..."
             cd /tmp
             rm -rf yay-bin
             if git clone --depth 1 https://aur.archlinux.org/yay-bin.git 2>/dev/null; then
@@ -64,14 +64,6 @@ install_yay() {
                 makepkg -si --noconfirm
                 cd ~
                 log "yay-bin установлен!"
-            else
-                cd /tmp
-                rm -rf yay
-                git clone --depth 1 https://aur.archlinux.org/yay.git
-                cd yay
-                makepkg -si --noconfirm
-                cd ~
-                log "yay установлен!"
             fi
         fi
     else
@@ -84,7 +76,7 @@ install_aur_packages() {
     log "Установка AUR пакетов..."
 
     info "i3lock-color..."
-    if yay -S --needed --noconfirm i3lock-color; then
+    if yay -S --needed --noconfirm i3lock-color 2>/dev/null; then
         log "i3lock-color установлен!"
     else
         warn "i3lock-color не собрался, ставим обычный i3lock..."
@@ -123,19 +115,16 @@ download_tool() {
     cd ~/suckless
     rm -rf "$name" "${name}.tar.gz"
 
-    info "Gitee..."
     if git clone --depth 1 "$gitee_url" "$name" 2>/dev/null; then
-        log "$name загружен!"
+        log "$name загружен с Gitee!"
         return 0
     fi
 
-    warn "Codeberg..."
     if git clone --depth 1 "$codeberg_url" "$name" 2>/dev/null; then
-        log "$name загружен!"
+        log "$name загружен с Codeberg!"
         return 0
     fi
 
-    warn "Wayback Machine..."
     if wget --timeout=10 -qO "${name}.tar.gz" "$archive_url" || \
        curl -L --connect-timeout 10 -o "${name}.tar.gz" "$archive_url"; then
         tar -xzf "${name}.tar.gz"
@@ -143,7 +132,7 @@ download_tool() {
         extracted_dir=$(tar -tf "${name}.tar.gz" | head -1 | cut -f1 -d"/")
         mv "$extracted_dir" "$name"
         rm "${name}.tar.gz"
-        log "$name загружен!"
+        log "$name загружен из архива!"
         return 0
     fi
 
@@ -177,7 +166,7 @@ build_dwm() {
     fi
 
     cat > config.h << 'DWMCONFIG'
-/* DWM config.h — Тёплый монохром v11.2 */
+/* DWM config.h — Тёплый монохром v11.4 */
 
 static const unsigned int borderpx       = 2;
 static const unsigned int snap           = 16;
@@ -366,11 +355,13 @@ DMENUCONFIG
 
 # ===================== LOCKSCREEN =====================
 create_lockscreen() {
-    log "Создание скрипта блокировки экрана..."
+    log "Создание скрипта блокировки..."
     mkdir -p ~/bin
 
     cat > ~/bin/lockscreen << 'LOCKSCREEN'
 #!/bin/bash
+export PATH="/usr/local/bin:/usr/bin:/bin:$HOME/bin:$PATH"
+
 TMPIMG="/tmp/lockscreen.png"
 
 if command -v scrot &>/dev/null; then
@@ -388,51 +379,22 @@ fi
 if i3lock --help 2>&1 | grep -q "insidecolor"; then
     if [ -f "$TMPIMG" ]; then
         i3lock \
-            --image="$TMPIMG" \
-            --nofork \
-            --clock \
-            --pass-media-keys \
-            --pass-volume-keys \
-            --radius=110 \
-            --ring-width=7 \
-            --insidecolor=00000000 \
-            --insidevercolor=00000000 \
-            --insidewrongcolor=00000000 \
-            --ringcolor=3a3632ff \
-            --ringvercolor=b5ada6ff \
-            --ringwrongcolor=6a4a3aff \
-            --line-uses-ring \
-            --linecolor=00000000 \
-            --separatorcolor=1c1a18ff \
-            --keyhlcolor=f5efe6ff \
-            --bshlcolor=6a6258ff \
-            --verifcolor=b5ada6ff \
-            --wrongcolor=f5efe6ff \
-            --modifcolor=b5ada6ff \
-            --timecolor=b5ada6ff \
-            --datecolor=b5ada6ff \
-            --layoutcolor=b5ada6ff \
-            --greetercolor=f5efe6ff \
-            --timestr="%H:%M" \
-            --datestr="%a, %d %b" \
-            --veriftext="проверка..." \
-            --wrongtext="неверно" \
-            --noinputtext="" \
-            --locktext="блокировка..." \
-            --lockfailedtext="ошибка" \
-            --greetertext="" \
-            --time-font="JetBrains Mono" \
-            --date-font="JetBrains Mono" \
-            --verif-font="JetBrains Mono" \
-            --wrong-font="JetBrains Mono" \
-            --timesize=52 \
-            --datesize=18 \
-            --verifsize=14 \
-            --wrongsize=14 \
-            --time-pos="ix:iy-100" \
-            --date-pos="ix:iy-65" \
-            --ignore-empty-password \
-            --show-failed-attempts
+            --image="$TMPIMG" --nofork --clock \
+            --pass-media-keys --pass-volume-keys \
+            --radius=110 --ring-width=7 \
+            --insidecolor=00000000 --insidevercolor=00000000 --insidewrongcolor=00000000 \
+            --ringcolor=3a3632ff --ringvercolor=b5ada6ff --ringwrongcolor=6a4a3aff \
+            --line-uses-ring --linecolor=00000000 --separatorcolor=1c1a18ff \
+            --keyhlcolor=f5efe6ff --bshlcolor=6a6258ff \
+            --verifcolor=b5ada6ff --wrongcolor=f5efe6ff --modifcolor=b5ada6ff \
+            --timecolor=b5ada6ff --datecolor=b5ada6ff \
+            --timestr="%H:%M" --datestr="%a, %d %b" \
+            --veriftext="проверка..." --wrongtext="неверно" \
+            --noinputtext="" --locktext="блокировка..." --lockfailedtext="ошибка" \
+            --time-font="JetBrains Mono" --date-font="JetBrains Mono" \
+            --verif-font="JetBrains Mono" --wrong-font="JetBrains Mono" \
+            --timesize=52 --datesize=18 \
+            --ignore-empty-password --show-failed-attempts
     else
         i3lock --color=0c0b0a --nofork --clock --ignore-empty-password
     fi
@@ -452,7 +414,7 @@ LOCKSCREEN
 
 # ===================== СКРИНШОТЫ =====================
 create_screenshot_script() {
-    log "Создание скриптов скриншотов..."
+    log "Создание скриншотов..."
     mkdir -p ~/bin ~/Pictures/Screenshots
 
     cat > ~/bin/screenshot << 'SCREENSHOT'
@@ -486,7 +448,7 @@ SCREENSHOTFULL
 
 # ===================== TELEGRAM =====================
 create_telegram_launcher() {
-    log "Создание запускателя Telegram..."
+    log "Создание Telegram запускателя..."
     mkdir -p ~/bin
     cat > ~/bin/telegram << 'TELEGRAM'
 #!/bin/bash
@@ -504,34 +466,11 @@ TELEGRAM
     chmod +x ~/bin/telegram
 }
 
-# ===================== ALACRITTY (16 ОТТЕНКОВ) =====================
+# ===================== ALACRITTY =====================
 create_alacritty_config() {
-    log "Создание конфига Alacritty (расширенная палитра)..."
+    log "Создание Alacritty..."
     mkdir -p ~/.config/alacritty
-
     cat > ~/.config/alacritty/alacritty.toml << 'ALACRITTY'
-# ============================================================
-#  Alacritty — Тёплый монохром (16 оттенков)
-#
-#  Полная палитра от тёмного к светлому:
-#  #0c0b0a  — фон (тёплый почти-чёрный)
-#  #1c1a18  — фон выделения
-#  #2a2622  — тёмно-коричневый
-#  #3a3632  — тёплая рамка
-#  #4a453f  — тёмно-серый
-#  #5a544d  — средне-тёмный
-#  #6a635a  — средний тусклый
-#  #7a7268  — средний
-#  #8a8177  — средний светлый
-#  #9a9086  — светло-серый тёплый
-#  #a89e93  — светлый
-#  #b5ada6  — обычный текст
-#  #c5bdb2  — светлее текста
-#  #d5cdc4  — очень светлый
-#  #e5ddd2  — почти акцент
-#  #f5efe6  — кремовый белый (акцент)
-# ============================================================
-
 [env]
 TERM = "xterm-256color"
 
@@ -556,80 +495,38 @@ style = "Bold"
 [font.italic]
 family = "JetBrains Mono"
 style = "Italic"
-[font.bold_italic]
-family = "JetBrains Mono"
-style = "Bold Italic"
-
-# ─── Основные цвета ───
 
 [colors.primary]
-background         = "#0c0b0a"
-foreground         = "#b5ada6"
-dim_foreground     = "#7a7268"
-bright_foreground  = "#f5efe6"
+background = "#0c0b0a"
+foreground = "#b5ada6"
 
 [colors.cursor]
 text    = "#0c0b0a"
 cursor  = "#f5efe6"
 
-[colors.vi_mode_cursor]
-text    = "#0c0b0a"
-cursor  = "#e5ddd2"
-
 [colors.selection]
-text       = "#f5efe6"
-background = "#4a453f"
-
-[colors.search.matches]
-foreground = "#0c0b0a"
-background = "#9a9086"
-
-[colors.search.focused_match]
-foreground = "#0c0b0a"
-background = "#f5efe6"
-
-[colors.footer_bar]
-foreground = "#b5ada6"
-background = "#1c1a18"
-
-[colors.hints.start]
-foreground = "#0c0b0a"
-background = "#e5ddd2"
-
-[colors.hints.end]
-foreground = "#0c0b0a"
-background = "#9a9086"
-
-[colors.line_indicator]
-foreground = "#f5efe6"
-background = "None"
-
-# ─── ANSI цвета (обычные) — тёплые оттенки серого ───
-# Каждый цвет получает свой различимый оттенок
+text       = "#0c0b0a"
+background = "#3a3632"
 
 [colors.normal]
-black   = "#0c0b0a"     # 0  — очень тёмный
-red     = "#8a8177"     # 1  — средне-светлый (red в терминале)
-green   = "#6a635a"     # 2  — средний тусклый (green)
-yellow  = "#d5cdc4"     # 3  — очень светлый (yellow)
-blue    = "#5a544d"     # 4  — средне-тёмный (blue)
-magenta = "#9a9086"     # 5  — светло-серый (magenta)
-cyan    = "#4a453f"     # 6  — тёмно-серый (cyan)
-white   = "#b5ada6"     # 7  — обычный текст
-
-# ─── ANSI цвета (яркие) — светлее обычных ───
+black   = "#0c0b0a"
+red     = "#8a8177"
+green   = "#6a635a"
+yellow  = "#d5cdc4"
+blue    = "#5a544d"
+magenta = "#9a9086"
+cyan    = "#4a453f"
+white   = "#b5ada6"
 
 [colors.bright]
-black   = "#3a3632"     # 8  — тёплая рамка (bright black = grey)
-red     = "#a89e93"     # 9  — светлый (bright red)
-green   = "#8a8177"     # 10 — средне-светлый (bright green)
-yellow  = "#f5efe6"     # 11 — акцент кремовый (bright yellow)
-blue    = "#7a7268"     # 12 — средний (bright blue)
-magenta = "#c5bdb2"     # 13 — светлее текста (bright magenta)
-cyan    = "#6a635a"     # 14 — средний тусклый (bright cyan)
-white   = "#f5efe6"     # 15 — акцент (bright white)
-
-# ─── Приглушённые цвета (dim) — тёмные варианты ───
+black   = "#3a3632"
+red     = "#a89e93"
+green   = "#8a8177"
+yellow  = "#f5efe6"
+blue    = "#7a7268"
+magenta = "#c5bdb2"
+cyan    = "#6a635a"
+white   = "#f5efe6"
 
 [colors.dim]
 black   = "#0c0b0a"
@@ -641,33 +538,6 @@ magenta = "#6a635a"
 cyan    = "#2a2622"
 white   = "#7a7268"
 
-# ─── Индексированные цвета (256-color палитра) ───
-# Расширяем оттенки для тонкой градации
-
-[[colors.indexed_colors]]
-index = 16
-color = "#e5ddd2"
-
-[[colors.indexed_colors]]
-index = 17
-color = "#a89e93"
-
-[[colors.indexed_colors]]
-index = 18
-color = "#2a2622"
-
-[[colors.indexed_colors]]
-index = 19
-color = "#9a9086"
-
-[[colors.indexed_colors]]
-index = 20
-color = "#c5bdb2"
-
-[[colors.indexed_colors]]
-index = 21
-color = "#1c1a18"
-
 [keyboard]
 bindings = [
     { key = "V",        mods = "Control|Shift", action = "Paste" },
@@ -676,20 +546,15 @@ bindings = [
     { key = "Minus",    mods = "Control",       action = "DecreaseFontSize" },
     { key = "Key0",     mods = "Control",       action = "ResetFontSize" },
     { key = "F",        mods = "Control|Shift", action = "SearchForward" },
-    { key = "B",        mods = "Control|Shift", action = "SearchBackward" },
     { key = "PageUp",   mods = "Shift",         action = "ScrollPageUp" },
     { key = "PageDown", mods = "Shift",         action = "ScrollPageDown" },
     { key = "Up",       mods = "Shift",         action = "ScrollLineUp" },
     { key = "Down",     mods = "Shift",         action = "ScrollLineDown" },
-    { key = "Home",     mods = "Shift",         action = "ScrollToTop" },
-    { key = "End",      mods = "Shift",         action = "ScrollToBottom" },
 ]
 
 [mouse]
 hide_when_typing = true
 ALACRITTY
-
-    log "Alacritty настроен (16+ оттенков серого)"
 }
 
 # ===================== МЫШЬ =====================
@@ -713,13 +578,16 @@ EndSection
 MOUSECONF
 }
 
-# ===================== NIGHTSHIFT + АВТОЗАПУСК =====================
+# ===================== NIGHTSHIFT =====================
 create_nightshift() {
-    log "Создание автозатемнения с автозапуском..."
+    log "Создание Nightshift..."
     mkdir -p ~/bin
 
     cat > ~/bin/nightshift << 'NIGHTSHIFT'
 #!/bin/bash
+export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
+export DISPLAY="${DISPLAY:-:0}"
+
 get_values() {
     local h=$1 m=$2
     local t=$(( h * 60 + m ))
@@ -757,7 +625,7 @@ while true; do
     gr=$(echo "$vals" | awk '{print $2}')
     gg=$(echo "$vals" | awk '{print $3}')
     gb=$(echo "$vals" | awk '{print $4}')
-    for o in $(xrandr --query | grep " connected" | awk '{print $1}'); do
+    for o in $(xrandr --query 2>/dev/null | grep " connected" | awk '{print $1}'); do
         xrandr --output "$o" --brightness "$br" --gamma "${gr}:${gg}:${gb}" 2>/dev/null
     done
     sleep 60
@@ -767,55 +635,13 @@ NIGHTSHIFT
 
     cat > ~/bin/nightshift-reset << 'NSRESET'
 #!/bin/bash
-for o in $(xrandr --query | grep " connected" | awk '{print $1}'); do
+export DISPLAY="${DISPLAY:-:0}"
+for o in $(xrandr --query 2>/dev/null | grep " connected" | awk '{print $1}'); do
     xrandr --output "$o" --brightness 1.0 --gamma 1.0:1.0:1.0
 done
 echo "Экран сброшен."
 NSRESET
     chmod +x ~/bin/nightshift-reset
-
-    # Systemd user service
-    mkdir -p ~/.config/systemd/user
-    cat > ~/.config/systemd/user/nightshift.service << NSSERVICE
-[Unit]
-Description=Nightshift — тёплое затемнение экрана
-After=graphical-session.target
-
-[Service]
-Type=simple
-ExecStart=$HOME/bin/nightshift
-Restart=always
-RestartSec=5
-Environment=DISPLAY=:0
-
-[Install]
-WantedBy=default.target
-NSSERVICE
-
-    # Перезагружаем systemd
-    systemctl --user daemon-reload 2>/dev/null || true
-
-    # ВКЛЮЧАЕМ автозапуск (при загрузке)
-    systemctl --user enable nightshift.service 2>/dev/null || true
-
-    # ЗАПУСКАЕМ прямо сейчас (если DISPLAY доступен)
-    if [ -n "$DISPLAY" ]; then
-        systemctl --user start nightshift.service 2>/dev/null || \
-            (nohup ~/bin/nightshift >/dev/null 2>&1 &)
-        log "Nightshift ЗАПУЩЕН"
-    else
-        # Если DISPLAY не задан — запускаем через nohup для гарантии
-        DISPLAY=:0 nohup ~/bin/nightshift >/dev/null 2>&1 &
-        log "Nightshift запущен в фоне (DISPLAY=:0)"
-    fi
-
-    # Проверяем что процесс жив
-    sleep 2
-    if pgrep -f "$HOME/bin/nightshift" >/dev/null 2>&1; then
-        log "✓ Nightshift работает (PID: $(pgrep -f "$HOME/bin/nightshift"))"
-    else
-        warn "Nightshift не запустился — проверьте вручную: ~/bin/nightshift &"
-    fi
 
     if ! grep -q 'export PATH="$HOME/bin:$PATH"' ~/.bashrc; then
         echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc
@@ -829,6 +655,14 @@ create_statusbar() {
 
     cat > ~/suckless/dwm-statusbar.sh << 'STATUSBAR'
 #!/bin/bash
+# Быстрый статус-бар для DWM
+
+export PATH="/usr/local/bin:/usr/bin:/bin:$HOME/bin:$PATH"
+export DISPLAY="${DISPLAY:-:0}"
+
+# Первичный тест — обязательно поставим текст сразу
+xsetroot -name " Загрузка... "
+
 sleep 1
 
 while true; do
@@ -837,32 +671,48 @@ while true; do
 
     BAT=""
     if [ -f /sys/class/power_supply/BAT0/capacity ]; then
-        BAT_CAP=$(cat /sys/class/power_supply/BAT0/capacity)
-        BAT_STATUS=$(cat /sys/class/power_supply/BAT0/status)
+        BAT_CAP=$(cat /sys/class/power_supply/BAT0/capacity 2>/dev/null)
+        BAT_STATUS=$(cat /sys/class/power_supply/BAT0/status 2>/dev/null)
         if [ "$BAT_STATUS" = "Charging" ]; then
             BAT="CHR ${BAT_CAP}% | "
-        else
+        elif [ -n "$BAT_CAP" ]; then
             BAT="BAT ${BAT_CAP}% | "
         fi
     fi
 
     VOL=""
-    if command -v pactl &>/dev/null; then
-        V=$(pactl get-sink-volume @DEFAULT_SINK@ 2>/dev/null | grep -o '[0-9]*%' | head -1)
-        M=$(pactl get-sink-mute @DEFAULT_SINK@ 2>/dev/null | awk '{print $2}')
-        if [ "$M" = "yes" ]; then
-            VOL="MUTE | "
-        elif [ -n "$V" ]; then
-            VOL="VOL ${V} | "
+    if command -v amixer &>/dev/null; then
+        AMIXER_OUT=$(amixer sget Master 2>/dev/null)
+        if [ -n "$AMIXER_OUT" ]; then
+            if echo "$AMIXER_OUT" | grep -q "\[off\]"; then
+                VOL="MUTE | "
+            else
+                V=$(echo "$AMIXER_OUT" | grep -o -m 1 '\[[0-9]*%\]' | tr -d '[]%')
+                if [ -n "$V" ]; then
+                    VOL="VOL ${V}% | "
+                fi
+            fi
         fi
     fi
 
-    RAM=$(free -h 2>/dev/null | awk '/^Mem:/ {print $3}')
-    CPU=$(top -bn1 2>/dev/null | grep "Cpu(s)" | awk '{print int($2+$4)}')
+    RAM=""
+    if [ -f /proc/meminfo ]; then
+        MEM_TOTAL=$(awk '/MemTotal:/ {print $2}' /proc/meminfo)
+        MEM_FREE=$(awk '/MemAvailable:/ {print $2}' /proc/meminfo)
+        MEM_USED=$(( (MEM_TOTAL - MEM_FREE) / 1024 ))
+        if [ $MEM_USED -ge 1024 ]; then
+            RAM="$(echo "scale=1; $MEM_USED / 1024" | bc)G"
+        else
+            RAM="${MEM_USED}M"
+        fi
+    fi
+
+    CPU=$(ps -A -o pcpu 2>/dev/null | awk '{s+=$1} END {print int(s)}')
+    [ -n "$CPU" ] || CPU="0"
 
     STATUS=" ${VOL}${BAT}CPU ${CPU}% | RAM ${RAM} | ${DATE} ${TIME} "
-
     xsetroot -name "$STATUS"
+
     sleep 2
 done
 STATUSBAR
@@ -872,7 +722,7 @@ STATUSBAR
 
 # ===================== GTK ТЁМНАЯ ТЕМА =====================
 create_gtk_theme() {
-    log "Настройка тёмной GTK темы..."
+    log "Настройка GTK тёмной темы..."
 
     mkdir -p ~/.config/gtk-3.0
     cat > ~/.config/gtk-3.0/settings.ini << 'GTK3'
@@ -883,12 +733,6 @@ gtk-font-name=JetBrains Mono 11
 gtk-cursor-theme-name=Adwaita
 gtk-cursor-theme-size=24
 gtk-application-prefer-dark-theme=1
-gtk-decoration-layout=menu:
-gtk-enable-animations=1
-gtk-primary-button-warps-slider=0
-gtk-toolbar-style=3
-gtk-menu-images=0
-gtk-button-images=0
 GTK3
 
     mkdir -p ~/.config/gtk-4.0
@@ -904,8 +748,6 @@ GTK4
 gtk-theme-name="Adwaita-dark"
 gtk-icon-theme-name="Adwaita"
 gtk-font-name="JetBrains Mono 11"
-gtk-cursor-theme-name="Adwaita"
-gtk-cursor-theme-size=24
 GTK2
 
     mkdir -p ~/.config/environment.d
@@ -922,23 +764,15 @@ Net/IconThemeName "Adwaita"
 Gtk/CursorThemeName "Adwaita"
 Gtk/CursorThemeSize 24
 Gtk/FontName "JetBrains Mono 11"
-Gtk/DecorationLayout "menu:"
-Gtk/EnableAnimations 1
-Gtk/PrimaryButtonWarpsSlider 0
-Gtk/ToolbarStyle 3
-Gtk/MenuImages 0
-Gtk/ButtonImages 0
 Gtk/ApplicationPreferDarkTheme 1
 XSETTINGS
 }
 
 apply_dark_theme_now() {
-    log "Применение тёмной темы..."
     if command -v gsettings &>/dev/null; then
         gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark' 2>/dev/null || true
         gsettings set org.gnome.desktop.interface gtk-theme 'Adwaita-dark' 2>/dev/null || true
         gsettings set org.gnome.desktop.interface icon-theme 'Adwaita' 2>/dev/null || true
-        gsettings set org.gnome.desktop.interface font-name 'JetBrains Mono 11' 2>/dev/null || true
     fi
 
     for shellrc in ~/.bashrc ~/.zshrc; do
@@ -953,9 +787,9 @@ apply_dark_theme_now() {
     done
 }
 
-# ===================== LF (СИНХРОНИЗИРОВАНО С ALACRITTY) =====================
+# ===================== LF =====================
 create_lf_config() {
-    log "Создание конфига lf..."
+    log "Создание LF..."
     mkdir -p ~/.config/lf
 
     cat > ~/.config/lf/lfrc << 'LFRC'
@@ -964,8 +798,6 @@ set hidden true
 set ignorecase true
 set icons false
 set drawbox true
-set number false
-set scrolloff 5
 
 map <enter> open
 map D delete
@@ -987,316 +819,192 @@ cmd open ${{
         *) xdg-open "$f" &;;
     esac
 }}
-
-cmd mkdir %{{
-    printf "Directory: "
-    read ans
-    mkdir -p "$ans"
-}}
-
-cmd mkfile %{{
-    printf "File: "
-    read ans
-    touch "$ans"
-}}
-
-map A mkdir
-map N mkfile
 LFRC
 
-    # Цвета LF — используем ANSI индексы, которые теперь имеют разные оттенки в Alacritty
-    # 0=фон 1=8a81 2=6a63 3=d5cd 4=5a54 5=9a90 6=4a45 7=b5ad(text)
-    # 8=3a36 9=a89e 10=8a81(bright) 11=f5ef(accent) 12=7a72 13=c5bd 14=6a63 15=f5ef
     cat > ~/.config/lf/colors << 'LFCOLORS'
-# Формат: <паттерн> <ANSI escape>
-# Используем 16-цветную ANSI палитру (см. alacritty.toml)
-
-# Директории — жирный акцент (bright white = f5efe6)
 di      01;15
-
-# Символические ссылки — курсив светло-серый
 ln      03;13
-
-# Битые ссылки — подчёркнутый тёмно-серый
 or      04;08
-
-# Обычные файлы — обычный текст (b5ada6)
 fi      00;07
-
-# Исполняемые — жирный кремовый акцент
 ex      01;11
-
-# Спец. файлы
 pi      00;03
 so      00;03
 do      00;03
 bd      00;06
 cd      00;06
-su      01;09
-sg      01;10
-tw      01;15
-st      01;12
-ow      00;13
 
-# ─── Архивы (тёплый жёлтый оттенок yellow = d5cdc4) ───
 *.tar   00;03
-*.tgz   00;03
 *.zip   00;03
 *.gz    00;03
-*.bz2   00;03
-*.xz    00;03
 *.7z    00;03
-*.rar   00;03
-*.deb   00;03
-*.rpm   00;03
-
-# ─── Изображения (светло-серый bright cyan = 6a635a) ───
 *.jpg   00;13
-*.jpeg  00;13
 *.png   00;13
 *.gif   00;13
-*.bmp   00;13
-*.svg   00;13
-*.webp  00;13
-*.ico   00;13
-
-# ─── Видео (magenta = 9a9086) ───
 *.mp4   00;05
 *.mkv   00;05
-*.avi   00;05
-*.mov   00;05
-*.wmv   00;05
-*.webm  00;05
-*.m4v   00;05
-
-# ─── Аудио (bright magenta = c5bdb2) ───
 *.mp3   00;13
 *.flac  00;13
-*.ogg   00;13
-*.wav   00;13
-*.m4a   00;13
-*.aac   00;13
-
-# ─── Документы (bright yellow = f5efe6 акцент) ───
 *.pdf   01;11
-*.epub  01;11
-*.mobi  01;11
 *.md    00;11
-*.rst   00;11
 *.txt   00;07
-*.doc   00;11
-*.docx  00;11
-*.odt   00;11
-
-# ─── Код (жирный текст, разные оттенки) ───
 *.c     01;07
 *.cpp   01;07
-*.cc    01;07
-*.h     01;07
-*.hpp   01;07
 *.py    01;07
 *.js    01;07
-*.ts    01;07
-*.jsx   01;07
-*.tsx   01;07
 *.rs    01;07
-*.go    01;07
-*.rb    01;07
-*.php   01;07
-*.java  01;07
-*.kt    01;07
-*.swift 01;07
-*.lua   01;07
-
-# ─── Скрипты (bright yellow = акцент) ───
 *.sh    01;11
-*.bash  01;11
-*.zsh   01;11
-*.fish  01;11
-
-# ─── Конфиги (bright white тусклый) ───
-*.conf  00;13
-*.cfg   00;13
-*.toml  00;13
-*.yaml  00;13
-*.yml   00;13
-*.json  00;13
-*.xml   00;13
-*.ini   00;13
-
-# ─── Веб (green = 6a635a тусклый) ───
-*.html  00;02
-*.htm   00;02
-*.css   00;02
-*.scss  00;02
-*.sass  00;02
-
-# ─── Логи (dim) ───
-*.log   00;06
-*.bak   00;06
-*.old   00;06
-*.tmp   00;06
-
-# ─── Данные ───
-*.csv   00;07
-*.sql   00;07
-*.db    00;06
 LFCOLORS
 
-    # LS_COLORS для ls (тоже 16-цветная палитра, синхронизирована)
-    if ! grep -q "# LS_COLORS монохром" ~/.bashrc; then
+    if ! grep -q "LS_COLORS монохром" ~/.bashrc; then
         cat >> ~/.bashrc << 'BASHRC_LS'
-
-# LS_COLORS монохром — синхронизировано с Alacritty
-export LS_COLORS="di=01;97:ln=03;96:or=04;90:so=33:pi=33:ex=01;93:bd=36:cd=36:su=01;33:sg=01;32:tw=01;97:st=01;34:ow=95:*.tar=33:*.tgz=33:*.zip=33:*.gz=33:*.bz2=33:*.xz=33:*.7z=33:*.rar=33:*.jpg=95:*.jpeg=95:*.png=95:*.gif=95:*.svg=95:*.mp4=35:*.mkv=35:*.avi=35:*.mov=35:*.webm=35:*.mp3=95:*.flac=95:*.ogg=95:*.wav=95:*.pdf=01;93:*.epub=01;93:*.md=93:*.rst=93:*.txt=37:*.c=01;37:*.cpp=01;37:*.h=01;37:*.py=01;37:*.js=01;37:*.ts=01;37:*.rs=01;37:*.go=01;37:*.rb=01;37:*.sh=01;93:*.bash=01;93:*.conf=95:*.toml=95:*.yaml=95:*.json=95:*.html=32:*.css=32:*.log=36:*.bak=36"
+# LS_COLORS монохром
+export LS_COLORS="di=01;97:ln=03;96:or=04;90:so=33:pi=33:ex=01;93:bd=36:cd=36:*.tar=33:*.zip=33:*.gz=33:*.mp3=95:*.mp4=35:*.png=95:*.jpg=95:*.pdf=01;93:*.md=93:*.c=01;37:*.py=01;37:*.sh=01;93"
 BASHRC_LS
     fi
-
-    log "lf настроен (палитра синхронизирована с Alacritty)"
 }
 
-# ===================== СЕССИЯ DWM =====================
+# ===================== DWM-SESSION ДЛЯ LY (КРИТИЧНО!) =====================
+create_dwm_session() {
+    log "Создание dwm-session с полной инициализацией для ly..."
+
+    # ГЛАВНОЕ: скрипт использует dbus-run-session
+    # ly не создаёт D-Bus сессию — приходится делать это самим
+    sudo tee /usr/local/bin/dwm-session > /dev/null << 'DWMSESSION'
+#!/bin/bash
+# dwm-session — Универсальный запуск DWM (для ly, sddm, gdm, startx)
+
+# ─── 1. ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ ───
+# ly НЕ выставляет DISPLAY — задаём вручную
+export DISPLAY="${DISPLAY:-:0}"
+export XDG_SESSION_TYPE="x11"
+export XDG_CURRENT_DESKTOP="DWM"
+export XDG_SESSION_DESKTOP="dwm"
+
+# PATH — ly НЕ загружает .bashrc, задаём вручную
+export PATH="$HOME/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
+
+# GTK тёмная тема
+export GTK_THEME="Adwaita-dark"
+export QT_QPA_PLATFORMTHEME="gtk3"
+export QT_STYLE_OVERRIDE="Adwaita-Dark"
+export _JAVA_OPTIONS='-Dawt.useSystemAAFontSettings=on -Dswing.aatext=true -Dswing.defaultlaf=com.sun.java.swing.plaf.gtk.GTKLookAndFeel'
+
+# Локаль
+export LANG="${LANG:-en_US.UTF-8}"
+export LC_ALL="${LC_ALL:-en_US.UTF-8}"
+
+# ─── 2. ЛОГИРОВАНИЕ (для диагностики) ───
+LOG="$HOME/.dwm-session.log"
+echo "=== $(date) — DWM session started ===" > "$LOG"
+echo "DISPLAY=$DISPLAY" >> "$LOG"
+echo "USER=$USER  HOME=$HOME" >> "$LOG"
+
+# ─── 3. D-BUS СЕССИЯ ───
+# ly НЕ создаёт D-Bus сессию — она нужна для gsettings, nm-applet, blueman
+if [ -z "$DBUS_SESSION_BUS_ADDRESS" ]; then
+    echo "Starting D-Bus session..." >> "$LOG"
+    eval "$(dbus-launch --sh-syntax --exit-with-session)"
+    export DBUS_SESSION_BUS_ADDRESS
+    export DBUS_SESSION_BUS_PID
+fi
+
+# ─── 4. КУРСОР И ФОН ───
+xsetroot -cursor_name left_ptr &
+xsetroot -solid "#0c0b0a" &
+
+# ─── 5. ТЁМНАЯ ТЕМА GTK ───
+xsettingsd &
+sleep 0.3
+gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark' 2>>"$LOG" &
+gsettings set org.gnome.desktop.interface gtk-theme 'Adwaita-dark' 2>>"$LOG" &
+gsettings set org.gnome.desktop.interface icon-theme 'Adwaita' 2>>"$LOG" &
+
+# ─── 6. ОТКЛЮЧЕНИЕ АКСЕЛЕРАЦИИ МЫШИ ───
+(
+    sleep 1
+    for id in $(xinput list --id-only 2>/dev/null); do
+        xinput set-prop "$id" "libinput Accel Profile Enabled" 0 1 2>/dev/null
+        xinput set-prop "$id" "libinput Accel Speed" 0 2>/dev/null
+    done
+) &
+
+# ─── 7. ФОНОВЫЕ УТИЛИТЫ ───
+picom --config "$HOME/.config/picom/picom.conf" -b 2>>"$LOG" &
+dunst 2>>"$LOG" &
+lxsession 2>>"$LOG" &
+
+# ─── 8. СТАТУС-БАР (ГЛАВНОЕ!) ───
+# Запускаем ДО DWM, чтобы часы появились сразу
+echo "Starting statusbar..." >> "$LOG"
+if [ -x "$HOME/suckless/dwm-statusbar.sh" ]; then
+    "$HOME/suckless/dwm-statusbar.sh" >> "$LOG" 2>&1 &
+    echo "Statusbar PID: $!" >> "$LOG"
+else
+    echo "ERROR: statusbar not found!" >> "$LOG"
+    xsetroot -name " No statusbar! Check ~/suckless/dwm-statusbar.sh "
+fi
+
+# ─── 9. ТРЕЙ (после DWM подтянутся в systray) ───
+(
+    sleep 3
+    nm-applet 2>>"$LOG" &
+    blueman-applet 2>>"$LOG" &
+) &
+
+# ─── 10. АВТОБЛОКИРОВКА ───
+if command -v xidlehook &>/dev/null; then
+    xidlehook \
+        --not-when-fullscreen \
+        --not-when-audio \
+        --timer 600 "$HOME/bin/lockscreen" '' 2>>"$LOG" &
+fi
+
+# ─── 11. НОЧНОЙ РЕЖИМ ───
+if [ -x "$HOME/bin/nightshift" ]; then
+    "$HOME/bin/nightshift" 2>>"$LOG" &
+    echo "Nightshift PID: $!" >> "$LOG"
+fi
+
+# ─── 12. ЗАПУСК DWM ───
+echo "Starting DWM..." >> "$LOG"
+exec dwm
+DWMSESSION
+
+    sudo chmod +x /usr/local/bin/dwm-session
+    log "Скрипт /usr/local/bin/dwm-session создан!"
+}
+
+# ===================== СЕССИЯ ДЛЯ LY =====================
 create_session() {
+    log "Создание файла сессии для ly..."
+
+    # Файл сессии для ly (и других display manager)
     sudo mkdir -p /usr/share/xsessions
     sudo tee /usr/share/xsessions/dwm.desktop > /dev/null << 'SESSION'
 [Desktop Entry]
 Encoding=UTF-8
 Name=DWM
 Comment=Dynamic Window Manager
-Exec=/usr/local/bin/dwm
+Exec=/usr/local/bin/dwm-session
 Icon=dwm
 Type=XSession
 SESSION
-}
 
-# ===================== PICOM =====================
-create_picom_config() {
-    mkdir -p ~/.config/picom
-    cat > ~/.config/picom/picom.conf << 'PICOM'
-backend = "xrender";
-shadow = true;
-shadow-radius = 12;
-shadow-offset-x = -7;
-shadow-offset-y = -7;
-shadow-opacity = 0.6;
-shadow-color = "#0c0b0a";
-inactive-opacity = 0.95;
-active-opacity = 1.0;
-frame-opacity = 1.0;
-fading = true;
-fade-in-step = 0.06;
-fade-out-step = 0.06;
-fade-delta = 5;
-corner-radius = 0;
-vsync = true;
-PICOM
-}
-
-# ===================== DUNST =====================
-create_dunst_config() {
-    mkdir -p ~/.config/dunst
-    cat > ~/.config/dunst/dunstrc << 'DUNST'
-[global]
-    monitor = 0
-    follow = mouse
-    width = 350
-    height = 100
-    origin = top-right
-    offset = 20x40
-    frame_width = 2
-    frame_color = "#3a3632"
-    font = JetBrains Mono 10
-    corner_radius = 0
-
-[urgency_low]
-    background = "#0c0b0a"
-    foreground = "#b5ada6"
-    timeout = 5
-
-[urgency_normal]
-    background = "#0c0b0a"
-    foreground = "#d5cdc4"
-    timeout = 10
-
-[urgency_critical]
-    background = "#1c1a18"
-    foreground = "#f5efe6"
-    frame_color = "#f5efe6"
-    timeout = 0
-DUNST
-}
-
-# ===================== XINITRC =====================
-create_xinitrc() {
-    log "Создание .xinitrc..."
+    # .xinitrc для startx (если ly недоступен)
     cat > ~/.xinitrc << 'XINITRC'
 #!/bin/sh
-
-xsetroot -cursor_name left_ptr &
-xsetroot -solid "#0c0b0a" &
-
-# GTK тёмная тема
-xsettingsd &
-sleep 0.5
-gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark' 2>/dev/null &
-gsettings set org.gnome.desktop.interface gtk-theme 'Adwaita-dark' 2>/dev/null &
-gsettings set org.gnome.desktop.interface icon-theme 'Adwaita' 2>/dev/null &
-
-export GTK_THEME=Adwaita-dark
-export QT_QPA_PLATFORMTHEME=gtk3
-export QT_STYLE_OVERRIDE=Adwaita-Dark
-export _JAVA_OPTIONS='-Dawt.useSystemAAFontSettings=on -Dswing.aatext=true'
-
-# Мышь без акселерации
-sleep 1
-for id in $(xinput list --id-only 2>/dev/null); do
-    xinput set-prop "$id" "libinput Accel Profile Enabled" 0 1 2>/dev/null
-    xinput set-prop "$id" "libinput Accel Speed" 0 2>/dev/null
-done &
-
-# Композитор
-picom --config ~/.config/picom/picom.conf -b 2>/dev/null &
-
-# Уведомления и polkit
-dunst &
-lxsession &
-
-# Трей
-sleep 2
-nm-applet &
-blueman-applet 2>/dev/null &
-
-# Автоблокировка
-if command -v xidlehook &>/dev/null; then
-    xidlehook \
-        --not-when-fullscreen \
-        --not-when-audio \
-        --timer 600 "$HOME/bin/lockscreen" '' &
-fi
-
-# Статус-бар
-"$HOME/suckless/dwm-statusbar.sh" &
-
-# ─── Nightshift: гарантированный запуск ───
-# 1. Пробуем через systemd (основной способ)
-systemctl --user start nightshift.service 2>/dev/null
-
-# 2. Проверяем — если не запустился, запускаем напрямую
-sleep 1
-if ! pgrep -f "$HOME/bin/nightshift" >/dev/null 2>&1; then
-    "$HOME/bin/nightshift" &
-fi
-
-exec dwm
+exec /usr/local/bin/dwm-session
 XINITRC
     chmod +x ~/.xinitrc
+
+    log "Сессия для ly настроена!"
 }
 
 # ===================== ШПАРГАЛКА =====================
 create_cheatsheet() {
     cat > ~/dwm-keybinds.txt << 'CHEAT'
 ╔══════════════════════════════════════════════════════════════╗
-║                    DWM KEYBINDINGS v11.2                     ║
+║                    DWM KEYBINDINGS v11.4 (ly)                ║
 ╠══════════════════════════════════════════════════════════════╣
 ║  Super + Enter        — Терминал                             ║
 ║  Super + D            — dmenu                                ║
@@ -1315,10 +1023,12 @@ create_cheatsheet() {
 ║  Ctrl+Super+Shift+Q   — Выйти из DWM                         ║
 ╚══════════════════════════════════════════════════════════════╝
 
-Nightshift:
-  systemctl --user status nightshift     — статус
-  systemctl --user restart nightshift    — перезапустить
-  nightshift-reset                       — сбросить экран
+Диагностика:
+  cat ~/.dwm-session.log     — лог автозапуска (что не запустилось)
+  pgrep -af dwm-statusbar    — работает ли часы
+  pgrep -af nightshift       — работает ли ночной режим
+  xrandr --verbose | head    — проверить DISPLAY
+  systemctl --user status    — статус пользовательских сервисов
 CHEAT
 }
 
@@ -1327,30 +1037,52 @@ run_diagnostics() {
     echo ""
     echo -e "${CYAN}═══════════ ДИАГНОСТИКА ═══════════${NC}"
 
-    if pgrep -f "$HOME/bin/nightshift" >/dev/null 2>&1; then
-        log "✓ Nightshift РАБОТАЕТ (PID: $(pgrep -f "$HOME/bin/nightshift"))"
+    if [ -x /usr/local/bin/dwm-session ]; then
+        log "✓ /usr/local/bin/dwm-session установлен"
     else
-        warn "✗ Nightshift не запущен — попробуйте: ~/bin/nightshift &"
+        err "✗ dwm-session НЕ создан!"
     fi
 
-    if systemctl --user is-enabled nightshift.service &>/dev/null; then
-        log "✓ Автозапуск Nightshift ВКЛЮЧЁН (systemd)"
+    if [ -f /usr/share/xsessions/dwm.desktop ]; then
+        log "✓ Файл сессии dwm.desktop создан"
     else
-        warn "✗ Автозапуск не включён — systemctl --user enable nightshift"
+        warn "✗ dwm.desktop отсутствует"
     fi
 
-    if command -v i3lock &>/dev/null; then
-        if i3lock --help 2>&1 | grep -q "insidecolor"; then
-            log "✓ i3lock-color установлен"
-        else
-            warn "! i3lock (обычный) установлен, i3lock-color лучше"
-        fi
+    if [ -x ~/suckless/dwm-statusbar.sh ]; then
+        log "✓ Статус-бар готов"
     else
-        err "✗ i3lock НЕ установлен!"
+        warn "✗ Статус-бар не найден"
     fi
 
-    [ -f ~/.config/alacritty/alacritty.toml ] && log "✓ Alacritty конфиг создан" || warn "✗ Alacritty конфиг отсутствует"
-    [ -f ~/.config/lf/colors ] && log "✓ LF цвета настроены" || warn "✗ LF цвета отсутствуют"
+    if [ -x ~/bin/nightshift ]; then
+        log "✓ Nightshift готов"
+    else
+        warn "✗ Nightshift не найден"
+    fi
+
+    if [ -x ~/bin/lockscreen ]; then
+        log "✓ Lockscreen готов"
+    else
+        warn "✗ Lockscreen не найден"
+    fi
+
+    if command -v dbus-launch &>/dev/null; then
+        log "✓ dbus-launch установлен (для ly)"
+    else
+        err "✗ dbus не установлен!"
+    fi
+
+    if command -v amixer &>/dev/null; then
+        log "✓ amixer доступен (звук в статус-баре)"
+    else
+        warn "! amixer не найден"
+    fi
+
+    # Проверка ly
+    if systemctl is-enabled ly.service &>/dev/null; then
+        log "✓ ly service включён"
+    fi
 
     echo -e "${CYAN}═══════════════════════════════════${NC}"
     echo ""
@@ -1360,8 +1092,8 @@ run_diagnostics() {
 main() {
     echo ""
     echo -e "${CYAN}╔══════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║   DWM Warm Monochrome v11.2                 ║${NC}"
-    echo -e "${CYAN}║   16 оттенков + Nightshift автозапуск       ║${NC}"
+    echo -e "${CYAN}║   DWM Warm Monochrome v11.4                 ║${NC}"
+    echo -e "${CYAN}║   Полная поддержка ly (TUI display manager) ║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
 
@@ -1378,17 +1110,13 @@ main() {
     create_alacritty_config
     create_mouse_config
     create_statusbar
-    create_xinitrc
-    create_picom_config
-    create_dunst_config
-    create_lf_config
     create_gtk_theme
     apply_dark_theme_now
+    create_lf_config
+    create_nightshift
+    create_dwm_session
     create_session
     create_cheatsheet
-
-    # Nightshift — ПОСЛЕДНИМ, чтобы всё было настроено
-    create_nightshift
 
     run_diagnostics
 
@@ -1397,13 +1125,15 @@ main() {
     echo -e "${GREEN}║          УСТАНОВКА ЗАВЕРШЕНА!                ║${NC}"
     echo -e "${GREEN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
-    info "Что нового в v11.2:"
-    echo "  ✓ Alacritty — 16+ различающихся оттенков серого"
-    echo "  ✓ LF — цвета синхронизированы с терминалом"
-    echo "  ✓ Nightshift — автозапуск включён (systemd + fallback)"
-    echo "  ✓ Nightshift — запущен прямо сейчас"
+    info "Что нового в v11.4:"
+    echo "  ✓ Полная поддержка ly (TUI display manager)"
+    echo "  ✓ Ручной запуск D-Bus (ly не создаёт сессию)"
+    echo "  ✓ Ручное задание DISPLAY, PATH, локали"
+    echo "  ✓ Логирование в ~/.dwm-session.log"
+    echo "  ✓ Часы появляются мгновенно (до запуска DWM)"
     echo ""
-    warn "Перезагрузите ПК: reboot"
+    warn "ВАЖНО: перезагрузите ПК!"
+    info "После входа проверьте лог: cat ~/.dwm-session.log"
     echo ""
 }
 
