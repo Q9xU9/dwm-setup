@@ -1,6 +1,6 @@
 #!/bin/bash
 # install.sh — DWM окружение на CachyOS/Arch
-# Версия 11.6 — Исправлены: Трей (trayer), буфер (clipmenu), уведомления (dunst)
+# Версия 11.7 — Исправлен trayer, удален neofetch, добавлен обход таймаута зеркал
 
 set -e
 
@@ -22,7 +22,8 @@ info()  { echo -e "${CYAN}[i]${NC} $1"; }
 # ===================== ЗАВИСИМОСТИ =====================
 install_packages() {
     log "Обновление системы..."
-    sudo pacman -Syu --noconfirm
+    # Игнорируем ошибку обновления баз, если зеркала временно лежат
+    sudo pacman -Syu --noconfirm || warn "Не удалось обновить базы данных пакетов, продолжаем со старыми базами..."
 
     log "Установка базовых пакетов..."
     sudo pacman -S --needed --noconfirm \
@@ -36,7 +37,7 @@ install_packages() {
         alacritty lf \
         gnome-disk-utility \
         steam \
-        wget curl tar gzip unzip htop neofetch \
+        wget curl tar gzip unzip htop \
         feh scrot brightnessctl \
         polkit lxsession \
         networkmanager network-manager-applet \
@@ -48,7 +49,6 @@ install_packages() {
         gnome-themes-extra adwaita-icon-theme \
         gsettings-desktop-schemas dconf \
         dbus \
-        trayer \
         clipmenu
 }
 
@@ -76,6 +76,14 @@ install_yay() {
 # ===================== AUR ПАКЕТЫ =====================
 install_aur_packages() {
     log "Установка AUR пакетов..."
+
+    info "Установка trayer (с обходом проблем с зеркалами)..."
+    if sudo pacman -S --needed --noconfirm trayer 2>/dev/null; then
+        log "trayer установлен из официальных репозиториев!"
+    else
+        warn "Официальный репозиторий недоступен. Устанавливаем trayer-srg из AUR..."
+        yay -S --needed --noconfirm trayer-srg || warn "Не удалось установить trayer!"
+    fi
 
     info "i3lock-color..."
     if yay -S --needed --noconfirm i3lock-color 2>/dev/null; then
@@ -153,7 +161,6 @@ build_dwm() {
     log "Применение патча systray..."
     local SYSTRAY_APPLIED=0
 
-    # Пытаемся накатить патч для версии 6.5
     if wget --timeout=10 -qO dwm-systray.diff \
         "https://dwm.suckless.org/patches/systray/dwm-systray-6.5.diff" 2>/dev/null || \
        curl -sLo dwm-systray.diff \
@@ -171,7 +178,7 @@ build_dwm() {
     echo "$SYSTRAY_APPLIED" > ~/.dwm-systray-status
 
     cat > config.h << 'DWMCONFIG'
-/* DWM config.h — v11.6 */
+/* DWM config.h — v11.7 */
 
 static const unsigned int borderpx       = 2;
 static const unsigned int snap           = 16;
@@ -379,13 +386,11 @@ create_clipmenu_config() {
     log "Настройка буфера обмена (clipmenu)..."
     mkdir -p ~/bin
 
-    # Исправленная обертка clipmenu
     cat > ~/bin/clipmenu-picker << 'CLIPMENU'
 #!/bin/bash
 export PATH="/usr/local/bin:/usr/bin:/bin:$HOME/bin:$PATH"
 export CM_LAUNCHER=dmenu
 
-# Передаем аргументы dmenu напрямую через переменную окружения для стабильности
 export DMENU_ARGS="-fn 'JetBrains Mono:size=11' -l 20 -nb '#0c0b0a' -nf '#b5ada6' -sb '#1c1a18' -sf '#f5efe6' -p 'clipboard:'"
 
 exec clipmenu
@@ -395,7 +400,6 @@ CLIPMENU
 
     mkdir -p ~/.config/clipmenu
     cat > ~/.config/clipmenu/config << 'CLIPMENUCFG'
-# Конфигурация демона clipmenu
 export CM_LAUNCHER=dmenu
 export CM_HISTLENGTH=200
 export CM_MAX_CLIPS=1000
@@ -997,7 +1001,6 @@ create_trayer_config() {
     log "Настройка trayer..."
     mkdir -p ~/bin
 
-    # Скрипт запуска trayer (Исправлен на динамическое расширение)
     cat > ~/bin/start-trayer << 'STARTTRAYER'
 #!/bin/bash
 pkill -x trayer 2>/dev/null
@@ -1023,7 +1026,7 @@ STARTTRAYER
     log "Trayer настроен."
 }
 
-# ===================== DWM-SESSION (ИСПРАВЛЕННЫЙ) =====================
+# ===================== DWM-SESSION =====================
 create_dwm_session() {
     log "Создание dwm-session..."
 
@@ -1046,29 +1049,23 @@ export LC_ALL="ru_RU.UTF-8"
 LOG="$HOME/.dwm-session.log"
 echo "=== $(date) — DWM session started ===" > "$LOG"
 
-# ─── ИСПРАВЛЕНИЕ D-BUS (Очень важно для dunst и clipmenu) ───
 if command -v dbus-update-activation-environment &>/dev/null; then
     dbus-update-activation-environment --systemd DISPLAY XAUTHORITY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP
     echo "D-Bus environment updated" >> "$LOG"
 fi
 
-# ─── ИСПРАВЛЕНИЕ РАСКЛАДКИ (чтобы бинды работали на русской раскладке) ───
 setxkbmap -layout us,ru -option grp:win_space_toggle &
 echo "Keyboard layout US/RU initialized (Switch with Win+Space)" >> "$LOG"
 
-# Курсор и фон
 xsetroot -cursor_name left_ptr &
 xsetroot -solid "#0c0b0a" &
 
-# Тема
 xsettingsd &
 sleep 0.2
 
-# Запуск композитора
 pkill -x picom 2>/dev/null
 picom --config "$HOME/.config/picom/picom.conf" -b 2>>"$LOG" &
 
-# ─── ПЕРЕЗАПУСК ДЕМОНОВ СВЯЗИ ───
 pkill -x dunst 2>/dev/null
 dunst 2>>"$LOG" &
 echo "Dunst restarted" >> "$LOG"
@@ -1078,15 +1075,12 @@ export CM_LAUNCHER=dmenu
 clipmenud >> "$LOG" 2>&1 &
 echo "clipmenud restarted" >> "$LOG"
 
-# lxsession для polkit
 lxsession 2>>"$LOG" &
 
-# Статус-бар
 if [ -x "$HOME/suckless/dwm-statusbar.sh" ]; then
     "$HOME/suckless/dwm-statusbar.sh" >> "$LOG" 2>&1 &
 fi
 
-# Трей
 SYSTRAY_STATUS="0"
 [ -f "$HOME/.dwm-systray-status" ] && SYSTRAY_STATUS=$(cat "$HOME/.dwm-systray-status")
 
@@ -1100,14 +1094,12 @@ else
     echo "Using DWM built-in systray" >> "$LOG"
 fi
 
-# Трей-иконки
 (
     sleep 3
     nm-applet 2>>"$LOG" &
     blueman-applet 2>>"$LOG" &
 ) &
 
-# Автоблокировка
 if command -v xidlehook &>/dev/null; then
     xidlehook \
         --not-when-fullscreen \
@@ -1115,7 +1107,6 @@ if command -v xidlehook &>/dev/null; then
         --timer 600 "$HOME/bin/lockscreen" '' 2>>"$LOG" &
 fi
 
-# Ночной режим
 if [ -x "$HOME/bin/nightshift" ]; then
     "$HOME/bin/nightshift" 2>>"$LOG" &
 fi
@@ -1197,32 +1188,26 @@ create_dunst_config() {
     font = JetBrains Mono 10
     corner_radius = 0
 
-    # История уведомлений
     sticky_history = yes
     history_length = 50
 
-    # Иконки
     icon_position = left
     min_icon_size = 32
     max_icon_size = 48
 
-    # Прогресс-бар
     progress_bar = true
     progress_bar_height = 8
     progress_bar_frame_width = 1
     progress_bar_min_width = 100
     progress_bar_max_width = 300
 
-    # Формат
     format = "<b>%s</b>\n%b"
     show_age_threshold = 60
     ellipsize = middle
     word_wrap = yes
 
-    # Показывать индикатор ожидания
     show_indicators = yes
 
-    # Мышь
     mouse_left_click = do_action, close_current
     mouse_middle_click = close_all
     mouse_right_click = context
@@ -1253,7 +1238,7 @@ DUNST
 create_cheatsheet() {
     cat > ~/dwm-keybinds.txt << 'CHEAT'
 ╔══════════════════════════════════════════════════════════════╗
-║                    DWM KEYBINDINGS v11.6                     ║
+║                    DWM KEYBINDINGS v11.7                     ║
 ╠══════════════════════════════════════════════════════════════╣
 ║  ЗАПУСК ПРОГРАММ                                             ║
 ║  Super + Enter        — Терминал                             ║
@@ -1312,7 +1297,13 @@ run_diagnostics() {
     [ -x ~/bin/notification-center ] && log "✓ Центр уведомлений" || warn "✗ Центр уведомлений"
     [ -x ~/bin/start-trayer ] && log "✓ Trayer скрипт" || warn "✗ Trayer скрипт"
 
-    command -v trayer &>/dev/null && log "✓ trayer установлен" || err "✗ trayer НЕ установлен"
+    # Проверка trayer и trayer-srg
+    if command -v trayer &>/dev/null; then
+        log "✓ trayer установлен"
+    else
+        err "✗ trayer НЕ установлен"
+    fi
+
     command -v clipmenu &>/dev/null && log "✓ clipmenu установлен" || err "✗ clipmenu НЕ установлен"
     command -v clipmenud &>/dev/null && log "✓ clipmenud (демон) готов" || warn "✗ clipmenud не найден"
     command -v dunstctl &>/dev/null && log "✓ dunstctl (управление уведомлениями)" || warn "✗ dunstctl не найден"
@@ -1333,7 +1324,7 @@ run_diagnostics() {
 main() {
     echo ""
     echo -e "${CYAN}╔══════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║   DWM Warm Monochrome v11.6                 ║${NC}"
+    echo -e "${CYAN}║   DWM Warm Monochrome v11.7                 ║${NC}"
     echo -e "${CYAN}║   Исправлены: Трей + Буфер + Уведомления    ║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
@@ -1372,11 +1363,9 @@ main() {
     echo -e "${GREEN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
     info "Исправлено:"
-    echo "  ✓ Трей больше не обрезается и растягивается под количество иконок"
-    echo "  ✓ Буфер обмена (Super+V) теперь правильно подгружает историю из dmenu"
-    echo "  ✓ Центр уведомлений (Super+ё) правильно связывается с dunst по dbus"
-    echo "  ✓ Бинды больше не ломаются при переключении на русскую раскладку"
-    echo "  ✓ Смена раскладки добавлена на Win+Space"
+    echo "  ✓ Neofetch полностью убран из списка установки."
+    echo "  ✓ Trayer теперь имеет запасной вариант установки из AUR (trayer-srg) при проблемах с зеркалами."
+    echo "  ✓ Буфер обмена (Super+V) и уведомления (Super+ё) теперь работают стабильно."
     echo ""
     warn "Для вступления изменений в силу перезагрузитесь: reboot"
     echo ""
