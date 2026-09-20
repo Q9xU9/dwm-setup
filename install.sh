@@ -1,6 +1,6 @@
 #!/bin/bash
 # install.sh — DWM окружение на CachyOS/Arch
-# Версия 12.4 — CDN-патчинг, DWM 6.4, Gaps, 4px обводка, однородный бар, точный CPU
+# Версия 12.5 — CDN-патчинг, DWM 6.4, Gaps, 4px обводка, однородный бар, точный CPU, очистка буфера
 
 set -e
 
@@ -103,7 +103,7 @@ install_aur_packages() {
         warn "xidlehook не установлен."
 }
 
-# ===================== СБОРКА DWM (СТАБИЛЬНЫЙ ПАТЧИНГ) =====================
+# ===================== СБОРКА DWM (СТАБИЛЬНЫЙ ПАТЧИНГ ЧЕРЕЗ CDN) =====================
 build_dwm() {
     log "Загрузка официального чистого архива DWM 6.4..."
     mkdir -p ~/suckless
@@ -118,7 +118,7 @@ build_dwm() {
     rm dwm-6.4.tar.gz
     cd dwm
 
-    log "Загрузка патчей через ультра-быстрый CDN jsDelivr..."
+    log "Загрузка патчей через быстрый CDN jsDelivr..."
     # Нативный трей в статус-баре
     wget -qO dwm-systray.patch "https://cdn.jsdelivr.net/gh/bakkeby/patches@master/dwm/dwm-systray-6.4.diff" || \
     curl -sLo dwm-systray.patch "https://cdn.jsdelivr.net/gh/bakkeby/patches@master/dwm/dwm-systray-6.4.diff"
@@ -138,7 +138,7 @@ build_dwm() {
 
     # Пишем оптимизированный config.h
     cat > config.h << 'DWMCONFIG'
-/* DWM config.h — v12.4 (Warm Monochrome) */
+/* DWM config.h — v12.5 (Warm Monochrome) */
 
 static const unsigned int borderpx       = 4;   /* Четкая жирная обводка 4px */
 static const unsigned int snap           = 16;
@@ -216,6 +216,7 @@ static const char *screenshot[]      = { "sh", "-c", "$HOME/bin/screenshot", NUL
 static const char *screenshotfull[]  = { "sh", "-c", "$HOME/bin/screenshot-full", NULL };
 static const char *lockcmd[]         = { "sh", "-c", "$HOME/bin/lockscreen", NULL };
 static const char *clipcmd[]         = { "sh", "-c", "$HOME/bin/clipmenu-picker", NULL };
+static const char *clipclear[]       = { "sh", "-c", "$HOME/bin/clipmenu-clear", NULL };
 static const char *noticmd[]         = { "sh", "-c", "$HOME/bin/notification-center", NULL };
 static const char *notidismiss[]     = { "dunstctl", "close", NULL };
 static const char *notidismissall[]  = { "dunstctl", "close-all", NULL };
@@ -242,6 +243,7 @@ static const Key keys[] = {
 
     /* ─── БУФЕР ОБМЕНА и УВЕДОМЛЕНИЯ ─── */
     { MODKEY,                       XK_v,      spawn,          {.v = clipcmd } },
+    { MODKEY|ShiftMask,             XK_v,      spawn,          {.v = clipclear } },
     { MODKEY,                       XK_grave,  spawn,          {.v = noticmd } },
     { MODKEY,                       XK_x,      spawn,          {.v = notidismiss } },
     { MODKEY|ShiftMask,             XK_x,      spawn,          {.v = notidismissall } },
@@ -357,7 +359,26 @@ export DMENU_ARGS="-fn 'JetBrains Mono:size=11' -l 20 -nb '#0c0b0a' -nf '#b5ada6
 exec clipmenu
 CLIPMENU
 
-    chmod +x ~/bin/clipmenu-picker
+    # Скрипт очистки истории буфера
+    cat > ~/bin/clipmenu-clear << 'CLIPCLEAR'
+#!/bin/bash
+export PATH="/usr/local/bin:/usr/bin:/bin:$HOME/bin:$PATH"
+
+CONFIRM=$(echo -e "Нет, оставить\nДа, очистить историю" | dmenu \
+    -fn "JetBrains Mono:size=11" \
+    -nb "#0c0b0a" \
+    -nf "#b5ada6" \
+    -sb "#0c0b0a" \
+    -sf "#f5efe6" \
+    -p "Очистить историю буфера?")
+
+if [[ "$CONFIRM" == *"Да"* ]]; then
+    clipdel -d ".*"
+    notify-send "Буфер обмена" "История успешно очищена!" -i edit-clear
+fi
+CLIPCLEAR
+
+    chmod +x ~/bin/clipmenu-picker ~/bin/clipmenu-clear
 
     mkdir -p ~/.config/clipmenu
     cat > ~/.config/clipmenu/config << 'CLIPMENUCFG'
@@ -367,7 +388,7 @@ export CM_MAX_CLIPS=1000
 export CM_IGNORE_WINDOW="^(KeePassXC|Bitwarden)"
 CLIPMENUCFG
 
-    log "Clipmenu настроен (Super+V — открыть историю)"
+    log "Clipmenu настроен (Super+V — история, Super+Shift+V — очистка)"
 }
 
 # ===================== ЦЕНТР УВЕДОМЛЕНИЙ =====================
@@ -1038,7 +1059,7 @@ DUNST
 create_cheatsheet() {
     cat > ~/dwm-keybinds.txt << 'CHEAT'
 ╔══════════════════════════════════════════════════════════════╗
-║                    DWM KEYBINDINGS v12.4                     ║
+║                    DWM KEYBINDINGS v12.5                     ║
 ╠══════════════════════════════════════════════════════════════╣
 ║  ЗАПУСК ПРОГРАММ                                             ║
 ║  Super + Enter        — Терминал                             ║
@@ -1052,6 +1073,7 @@ create_cheatsheet() {
 ║                                                              ║
 ║  БУФЕР ОБМЕНА (clipmenu)                                     ║
 ║  Super + V            — Открыть историю буфера обмена        ║
+║  Super + Shift + V    — Очистить историю буфера обмена       ║
 ║                                                              ║
 ║  УВЕДОМЛЕНИЯ (dunst)                                         ║
 ║  Super + `            — Центр уведомлений (тильда/ё)         ║
@@ -1094,6 +1116,7 @@ run_diagnostics() {
     [ -x /usr/local/bin/dwm-session ] && log "✓ dwm-session" || err "✗ dwm-session"
     [ -x ~/suckless/dwm-statusbar.sh ] && log "✓ Статус-бар" || warn "✗ Статус-бар"
     [ -x ~/bin/clipmenu-picker ] && log "✓ Clipmenu-picker" || warn "✗ Clipmenu"
+    [ -x ~/bin/clipmenu-clear ] && log "✓ Clipmenu-clear" || warn "✗ Clipmenu-clear"
     [ -x ~/bin/notification-center ] && log "✓ Центр уведомлений" || warn "✗ Центр уведомлений"
 
     command -v clipmenu &>/dev/null && log "✓ clipmenu установлен" || err "✗ clipmenu НЕ установлен"
@@ -1110,7 +1133,7 @@ run_diagnostics() {
 main() {
     echo ""
     echo -e "${CYAN}╔══════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║   DWM Warm Monochrome v12.4                 ║${NC}"
+    echo -e "${CYAN}║   DWM Warm Monochrome v12.5                 ║${NC}"
     echo -e "${CYAN}║   Нативный Трей + Gaps + Однородный Бар      ║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
@@ -1147,10 +1170,11 @@ main() {
     echo -e "${GREEN}║          УСТАНОВКА ЗАВЕРШЕНА!                ║${NC}"
     echo -e "${GREEN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
-    info "Улучшения v12.4:"
+    info "Что нового в v12.5:"
     echo "  ✓ Трей нативно интегрирован. Проблема блокировок и лимитов RAW-запросов решена через CDN jsDelivr."
-    echo "  ✓ Перешли на стабильную базу DWM 6.4, где все патчи применяются безупречно."
-    echo "  ✓ Нагрузка CPU в статус-баре теперь точная (строго от 0% до 100%)."
+    echo "  ✓ Патчи применены к стабильной версии DWM 6.4 со 100%-й гарантией."
+    echo "  ✓ Добавлена очистка истории буфера обмена: Super+Shift+V."
+    echo "  ✓ Нагрузка CPU в статус-баре теперь абсолютно точная (строго от 0% до 100%)."
     echo "  ✓ Рамки окон стали толще и стильнее (borderpx = 4)."
     echo "  ✓ Панель стала абсолютно однородной (полностью глубокий черный цвет без серых плашек)."
     echo "  ✓ Генерация обоев отключена. Путь к картинке меняется в /usr/local/bin/dwm-session."
