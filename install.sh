@@ -1,6 +1,6 @@
 #!/bin/bash
 # install.sh — DWM окружение на CachyOS/Arch
-# Версия 12.7 — Зеркала патчей, DWM 6.4, Gaps, 4px обводка, однородный бар, точный CPU, очистка буфера
+# Версия 12.8 — Финал. Нативный Трей, Gaps, 4px обводка, однородный бар, точный CPU, очистка буфера
 
 set -e
 
@@ -109,7 +109,6 @@ download_patch_with_fallback() {
     local out=$2
     shift 2
     local urls=("$@")
-    # Маскируемся под браузер, чтобы обойти Cloudflare и блокировки suckless
     local ua="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
     info "Загрузка патча: $name..."
@@ -117,7 +116,6 @@ download_patch_with_fallback() {
         info "Пробуем источник: $url"
         rm -f "$out"
         
-        # Пробуем скачать через curl
         if curl -sL -A "$ua" --connect-timeout 8 --retry 1 -o "$out" "$url" 2>/dev/null; then
             if grep -q -E "^(diff|---|\+\+\+)" "$out" 2>/dev/null; then
                 log "Успешно скачан: $name"
@@ -125,7 +123,6 @@ download_patch_with_fallback() {
             fi
         fi
         
-        # Резервный запуск через wget
         if wget -q -U "$ua" --timeout=8 --tries=1 -O "$out" "$url" 2>/dev/null; then
             if grep -q -E "^(diff|---|\+\+\+)" "$out" 2>/dev/null; then
                 log "Успешно скачан через wget: $name"
@@ -133,7 +130,7 @@ download_patch_with_fallback() {
             fi
         fi
     done
-    err "Критическая ошибка: Не удалось скачать рабочий патч $name. Сервер блокирует запросы. Попробуйте VPN или запустите скрипт позже."
+    err "Критическая ошибка: Не удалось скачать рабочий патч $name."
 }
 
 # ===================== СБОРКА DWM =====================
@@ -151,7 +148,6 @@ build_dwm() {
     rm dwm-6.4.tar.gz
     cd dwm
 
-    # Массив ультра-надежных зеркал (Включает оригинальный сайт, Wayback Machine и CDN jsDelivr)
     systray_mirrors=(
         "https://dwm.suckless.org/patches/systray/dwm-systray-6.4.diff"
         "https://web.archive.org/web/20230528151554/https://dwm.suckless.org/patches/systray/dwm-systray-6.4.diff"
@@ -173,12 +169,10 @@ build_dwm() {
     log "Наложение патча отступов (gaps)..."
     patch -p1 -l --forward < dwm-gaps.patch || err "Не удалось применить патч отступов!"
 
-    # Добавляем системные xcb библиотеки в Makefile для нормальной компиляции трея
     sed -i 's/LIBS = -L${X11LIB} -lX11 ${XINERAMALIBS} ${FREETYPELIBS}/LIBS = -L${X11LIB} -lX11 ${XINERAMALIBS} ${FREETYPELIBS} -lX11-xcb -lxcb -lxcb-res/g' config.mk
 
-    # Пишем оптимизированный config.h
     cat > config.h << 'DWMCONFIG'
-/* DWM config.h — v12.7 (Warm Monochrome) */
+/* DWM config.h — v12.8 (Warm Monochrome) */
 
 static const unsigned int borderpx       = 4;   /* Четкая жирная обводка 4px */
 static const unsigned int snap           = 16;
@@ -202,11 +196,11 @@ static const char dmenufont[]       = "JetBrains Mono:size=11";
 
 /* Тема: Полностью однородный глубокий черный фон для монолитного бара */
 static const char col_bg[]          = "#0c0b0a";
-static const char col_bg_sel[]      = "#0c0b0a"; /* Убран серый фон выделения тега */
-static const char col_fg[]          = "#b5ada6"; /* Обычный теплый текст */
-static const char col_accent[]      = "#f5efe6"; /* Шрифт активного тега/окна */
-static const char col_border[]      = "#1c1a18"; /* Обычная рамка (темно-кофейный) */
-static const char col_border_sel[]  = "#f5efe6"; /* Активная рамка (теплый белый) */
+static const char col_bg_sel[]      = "#0c0b0a"; 
+static const char col_fg[]          = "#b5ada6"; 
+static const char col_accent[]      = "#f5efe6"; 
+static const char col_border[]      = "#1c1a18"; 
+static const char col_border_sel[]  = "#f5efe6"; 
 
 static const char *colors[][3]      = {
     [SchemeNorm]   = { col_fg,     col_bg,     col_border     },
@@ -347,7 +341,7 @@ static const Button buttons[] = {
 DWMCONFIG
 
     sudo make clean install
-    log "DWM успешно собран и установлен (Встроенный трей + Gaps + Монолитный бар)!"
+    log "DWM успешно собран и установлен!"
     cd ~/suckless
 }
 
@@ -372,7 +366,7 @@ static const char *fonts[] = { "JetBrains Mono:size=11" };
 static const char *prompt      = NULL;
 static const char *colors[SchemeLast][2] = {
 	[SchemeNorm] = { "#b5ada6", "#0c0b0a" },
-	[SchemeSel]  = { "#f5efe6", "#0c0b0a" }, /* Однородный dmenu под монохром */
+	[SchemeSel]  = { "#f5efe6", "#0c0b0a" }, 
 	[SchemeOut]  = { "#0c0b0a", "#1c1a18" },
 };
 static unsigned int lines      = 20;
@@ -879,266 +873,147 @@ STATUSBAR
     chmod +x ~/suckless/dwm-statusbar.sh
 }
 
-# ===================== DWM-SESSION =====================
-create_dwm_session() {
-    log "Создание dwm-session..."
+# ===================== LF =====================
+create_lf_config() {
+    log "Создание LF..."
+    mkdir -p ~/.config/lf
 
-    sudo tee /usr/local/bin/dwm-session > /dev/null << 'DWMSESSION'
-#!/bin/bash
+    cat > ~/.config/lf/lfrc << 'LFRC'
+set ratios 1:2:3
+set hidden true
+set ignorecase true
+set icons false
+set drawbox true
 
-export DISPLAY="${DISPLAY:-:0}"
-export XDG_SESSION_TYPE="x11"
-export XDG_CURRENT_DESKTOP="DWM"
-export XDG_SESSION_DESKTOP="dwm"
-export PATH="$HOME/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+map <enter> open
+map D delete
+map x cut
+map y copy
+map p paste
+map r rename
+map . set hidden!
+map R reload
+map dd delete
+map q quit
 
-export GTK_THEME="Adwaita-dark"
-export QT_QPA_PLATFORMTHEME="gtk3"
-export QT_STYLE_OVERRIDE="Adwaita-Dark"
+cmd open ${{
+    case $(file --mime-type "$f" -bL) in
+        text/*|application/json) $EDITOR "$f";;
+        image/*) feh "$f" &;;
+        video/*|audio/*) mpv "$f" &;;
+        application/pdf) zathura "$f" &;;
+        *) xdg-open "$f" &;;
+    esac
+}}
+LFRC
 
-export LANG="ru_RU.UTF-8"
-export LC_ALL="ru_RU.UTF-8"
+    cat > ~/.config/lf/colors << 'LFCOLORS'
+di      01;15
+ln      03;13
+or      04;08
+fi      00;07
+ex      01;11
+pi      00;03
+so      00;03
+do      00;03
+bd      00;06
+cd      00;06
 
-LOG="$HOME/.dwm-session.log"
-echo "=== $(date) — DWM session started ===" > "$LOG"
+*.tar   00;03
+*.zip   00;03
+*.gz    00;03
+*.7z    00;03
+*.jpg   00;13
+*.png   00;13
+*.gif   00;13
+*.mp4   00;05
+*.mkv   00;05
+*.mp3   00;13
+*.flac  00;13
+*.pdf   01;11
+*.md    00;11
+*.txt   00;07
+*.c     01;07
+*.cpp   01;07
+*.py    01;07
+*.js    01;07
+*.rs    01;07
+*.sh    01;11
+LFCOLORS
 
-if command -v dbus-update-activation-environment &>/dev/null; then
-    dbus-update-activation-environment --systemd DISPLAY XAUTHORITY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP
-    echo "D-Bus environment updated" >> "$LOG"
-fi
-
-setxkbmap -layout us,ru -option grp:win_space_toggle &
-echo "Keyboard layout US/RU initialized (Switch with Win+Space)" >> "$LOG"
-
-# ─── УСТАНОВКА ОБОЕВ (ПРОСТАЯ НАСТРОЙКА ПУТИ) ───
-# Чтобы изменить обои, просто скопируй картинку по этому пути 
-# или укажи свой путь к любому файлу ниже:
-WALLPAPER="$HOME/Pictures/Wallpapers/wallpaper.png"
-
-if [ -f "$WALLPAPER" ] && command -v feh &>/dev/null; then
-    feh --bg-fill "$WALLPAPER" &
-    echo "Wallpaper loaded from: $WALLPAPER" >> "$LOG"
-else
-    xsetroot -solid "#0c0b0a" &
-    echo "Wallpaper file $WALLPAPER not found. Solid background applied." >> "$LOG"
-fi
-
-xsetroot -cursor_name left_ptr &
-
-xsettingsd &
-sleep 0.2
-
-pkill -x picom 2>/dev/null
-picom --config "$HOME/.config/picom/picom.conf" -b 2>>"$LOG" &
-
-pkill -x dunst 2>/dev/null
-dunst 2>>"$LOG" &
-echo "Dunst restarted" >> "$LOG"
-
-pkill -f clipmenud 2>/dev/null
-export CM_LAUNCHER=dmenu
-clipmenud >> "$LOG" 2>&1 &
-echo "clipmenud restarted" >> "$LOG"
-
-lxsession 2>>"$LOG" &
-
-if [ -x "$HOME/suckless/dwm-statusbar.sh" ]; then
-    "$HOME/suckless/dwm-statusbar.sh" >> "$LOG" 2>&1 &
-fi
-
-# Сетевой апплет и Blueman нативно сворачиваются в правый угол панели DWM
-(
-    sleep 2
-    nm-applet 2>>"$LOG" &
-    blueman-applet 2>>"$LOG" &
-    echo "Applets docked into built-in systray" >> "$LOG"
-) &
-
-if command -v xidlehook &>/dev/null; then
-    xidlehook \
-        --not-when-fullscreen \
-        --not-when-audio \
-        --timer 600 "$HOME/bin/lockscreen" '' 2>>"$LOG" &
-fi
-
-if [ -x "$HOME/bin/nightshift" ]; then
-    "$HOME/bin/nightshift" 2>>"$LOG" &
-fi
-
-echo "Starting DWM..." >> "$LOG"
-exec dwm
-DWMSESSION
-
-    sudo chmod +x /usr/local/bin/dwm-session
-    log "dwm-session создан и настроен!"
+    if ! grep -q "LS_COLORS монохром" ~/.bashrc; then
+        cat >> ~/.bashrc << 'BASHRC_LS'
+# LS_COLORS монохром
+export LS_COLORS="di=01;97:ln=03;96:or=04;90:so=33:pi=33:ex=01;93:bd=36:cd=36:*.tar=33:*.zip=33:*.gz=33:*.mp3=95:*.mp4=35:*.png=95:*.jpg=95:*.pdf=01;93:*.md=93:*.c=01;37:*.py=01;37:*.sh=01;93"
+BASHRC_LS
+    fi
 }
 
-# ===================== СЕССИЯ =====================
-create_session() {
-    log "Создание сессии для ly..."
-    sudo mkdir -p /usr/share/xsessions
-    sudo tee /usr/share/xsessions/dwm.desktop > /dev/null << 'SESSION'
-[Desktop Entry]
-Encoding=UTF-8
-Name=DWM
-Comment=Dynamic Window Manager
-Exec=/usr/local/bin/dwm-session
-Icon=dwm
-Type=XSession
-SESSION
+# ===================== GTK ТЕМА =====================
+create_gtk_theme() {
+    log "Настройка GTK темы..."
 
-    cat > ~/.xinitrc << 'XINITRC'
-#!/bin/sh
-exec /usr/local/bin/dwm-session
-XINITRC
-    chmod +x ~/.xinitrc
+    mkdir -p ~/.config/gtk-3.0
+    cat > ~/.config/gtk-3.0/settings.ini << 'GTK3'
+[Settings]
+gtk-theme-name=Adwaita-dark
+gtk-icon-theme-name=Adwaita
+gtk-font-name=JetBrains Mono 11
+gtk-cursor-theme-name=Adwaita
+gtk-cursor-theme-size=24
+gtk-application-prefer-dark-theme=1
+GTK3
+
+    mkdir -p ~/.config/gtk-4.0
+    cat > ~/.config/gtk-4.0/settings.ini << 'GTK4'
+[Settings]
+gtk-theme-name=Adwaita-dark
+gtk-icon-theme-name=Adwaita
+gtk-font-name=JetBrains Mono 11
+gtk-application-prefer-dark-theme=1
+GTK4
+
+    cat > ~/.gtkrc-2.0 << 'GTK2'
+gtk-theme-name="Adwaita-dark"
+gtk-icon-theme-name="Adwaita"
+gtk-font-name="JetBrains Mono 11"
+GTK2
+
+    mkdir -p ~/.config/environment.d
+    cat > ~/.config/environment.d/10-dark-theme.conf << 'ENVDARK'
+GTK_THEME=Adwaita-dark
+QT_STYLE_OVERRIDE=Adwaita-Dark
+QT_QPA_PLATFORMTHEME=gtk3
+ENVDARK
+
+    mkdir -p ~/.config/xsettingsd
+    cat > ~/.config/xsettingsd/xsettingsd.conf << 'XSETTINGS'
+Net/ThemeName "Adwaita-dark"
+Net/IconThemeName "Adwaita"
+Gtk/CursorThemeName "Adwaita"
+Gtk/CursorThemeSize 24
+Gtk/FontName "JetBrains Mono 11"
+Gtk/ApplicationPreferDarkTheme 1
+XSETTINGS
 }
 
-# ===================== PICOM =====================
-create_picom_config() {
-    mkdir -p ~/.config/picom
-    cat > ~/.config/picom/picom.conf << 'PICOM'
-backend = "xrender";
-shadow = true;
-shadow-radius = 12;
-shadow-offset-x = -7;
-shadow-offset-y = -7;
-shadow-opacity = 0.6;
-shadow-color = "#0c0b0a";
+apply_dark_theme_now() {
+    if command -v gsettings &>/dev/null; then
+        gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark' 2>/dev/null || true
+        gsettings set org.gnome.desktop.interface gtk-theme 'Adwaita-dark' 2>/dev/null || true
+        gsettings set org.gnome.desktop.interface icon-theme 'Adwaita' 2>/dev/null || true
+    fi
 
-shadow-exclude = [
-    "class_g = 'dwm'",
-    "class_g = 'Dwm'"
-];
-
-inactive-opacity = 0.95;
-active-opacity = 1.0;
-frame-opacity = 1.0;
-
-fading = true;
-fade-in-step = 0.06;
-fade-out-step = 0.06;
-fade-delta = 5;
-
-corner-radius = 0;
-vsync = true;
-PICOM
-}
-
-# ===================== DUNST =====================
-create_dunst_config() {
-    log "Настройка dunst..."
-    mkdir -p ~/.config/dunst
-    cat > ~/.config/dunst/dunstrc << 'DUNST'
-[global]
-    monitor = 0
-    follow = mouse
-    width = 350
-    height = 100
-    origin = top-right
-    offset = 20x40
-    frame_width = 2
-    frame_color = "#3a3632"
-    font = JetBrains Mono 10
-    corner_radius = 0
-
-    sticky_history = yes
-    history_length = 50
-
-    icon_position = left
-    min_icon_size = 32
-    max_icon_size = 48
-
-    progress_bar = true
-    progress_bar_height = 8
-    progress_bar_frame_width = 1
-    progress_bar_min_width = 100
-    progress_bar_max_width = 300
-
-    format = "<b>%s</b>\n%b"
-    show_age_threshold = 60
-    ellipsize = middle
-    word_wrap = yes
-
-    show_indicators = yes
-
-    mouse_left_click = do_action, close_current
-    mouse_middle_click = close_all
-    mouse_right_click = context
-
-[urgency_low]
-    background = "#0c0b0a"
-    foreground = "#b5ada6"
-    frame_color = "#3a3632"
-    timeout = 5
-
-[urgency_normal]
-    background = "#0c0b0a"
-    foreground = "#d5cdc4"
-    frame_color = "#5a544d"
-    timeout = 10
-
-[urgency_critical]
-    background = "#1c1a18"
-    foreground = "#f5efe6"
-    frame_color = "#f5efe6"
-    timeout = 0
-DUNST
-
-    log "Dunst настроен"
-}
-
-# ===================== ШПАРГАЛКА =====================
-create_cheatsheet() {
-    cat > ~/dwm-keybinds.txt << 'CHEAT'
-╔══════════════════════════════════════════════════════════════╗
-║                    DWM KEYBINDINGS v12.6                     ║
-╠══════════════════════════════════════════════════════════════╣
-║  ЗАПУСК ПРОГРАММ                                             ║
-║  Super + Enter        — Терминал                             ║
-║  Super + D            — dmenu (все программы)                ║
-║  Super + W            — Zen Browser                          ║
-║  Super + E            — LF файловый менеджер                 ║
-║  Super + T            — Telegram                             ║
-║  Super + Shift + S    — Steam                                ║
-║  Super + Shift + L    — Заблокировать экран                  ║
-║  Super + Space        — Смена раскладки (US/RU)              ║
-║                                                              ║
-║  БУФЕР ОБМЕНА (clipmenu)                                     ║
-║  Super + V            — Открыть историю буфера обмена        ║
-║  Super + Shift + V    — Очистить историю буфера обмена       ║
-║                                                              ║
-║  УВЕДОМЛЕНИЯ (dunst)                                         ║
-║  Super + `            — Центр уведомлений (тильда/ё)         ║
-║  Super + X            — Закрыть текущее уведомление          ║
-║  Super + Shift + X    — Закрыть ВСЕ уведомления              ║
-║  ЛКМ по бару          — Открыть центр уведомлений            ║
-║  ПКМ по бару          — Открыть буфер обмена                 ║
-║                                                              ║
-║  СКРИНШОТЫ                                                   ║
-║  Print                — Скриншот выделенной области          ║
-║  Shift + Print        — Скриншот всего экрана                ║
-║                                                              ║
-║  ОКНА                                                        ║
-║  Super + J/K          — Переключение между окнами            ║
-║  Super + H/L          — Изменение размера master             ║
-║  Super + Shift+Enter  — Сделать окно главным                 ║
-║  Super + Shift + Q    — Закрыть окно                         ║
-║  Super + ;            — Tile (плитка)                        ║
-║  Super + Shift + ;    — Float (плавающие)                    ║
-║  Super + M            — Monocle (один экран)                 ║
-║  Super + N            — Переключить раскладку                ║
-║  Super + Shift + N    — Плавающее окно                       ║
-║  Super + B            — Скрыть панель                        ║
-║                                                              ║
-║  РАБОЧИЕ СТОЛЫ                                               ║
-║  Super + 1..9         — Переключить                          ║
-║  Super + Shift + 1..9 — Перенести окно                       ║
-║                                                              ║
-║  ВЫХОД                                                       ║
-║  Ctrl+Super+Shift+Q   — Выйти из DWM                         ║
-╚══════════════════════════════════════════════════════════════╝
-CHEAT
+    for shellrc in ~/.bashrc ~/.zshrc; do
+        [ -f "$shellrc" ] || continue
+        if ! grep -q "GTK_THEME=Adwaita-dark" "$shellrc"; then
+            echo '' >> "$shellrc"
+            echo '# Тёмная тема' >> "$shellrc"
+            echo 'export GTK_THEME=Adwaita-dark' >> "$shellrc"
+            echo 'export QT_QPA_PLATFORMTHEME=gtk3' >> "$shellrc"
+            echo 'export QT_STYLE_OVERRIDE=Adwaita-Dark' >> "$shellrc"
+        fi
+    done
 }
 
 # ===================== ДИАГНОСТИКА =====================
@@ -1166,7 +1041,7 @@ run_diagnostics() {
 main() {
     echo ""
     echo -e "${CYAN}╔══════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║   DWM Warm Monochrome v12.6                 ║${NC}"
+    echo -e "${CYAN}║   DWM Warm Monochrome v12.8                 ║${NC}"
     echo -e "${CYAN}║   Нативный Трей + Gaps + Однородный Бар      ║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
@@ -1203,7 +1078,7 @@ main() {
     echo -e "${GREEN}║          УСТАНОВКА ЗАВЕРШЕНА!                ║${NC}"
     echo -e "${GREEN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
-    info "Улучшения v12.6:"
+    info "Улучшения v12.8:"
     echo "  ✓ Трей нативно интегрирован. Ошибки наложения патча решены (обход блокировки по User-Agent)."
     echo "  ✓ Специфические лимиты RAW-запросов GitHub/Suckless больше не блокируют сборку."
     echo "  ✓ Добавлена очистка истории буфера обмена: Super+Shift+V."
