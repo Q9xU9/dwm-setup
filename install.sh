@@ -1,6 +1,6 @@
 #!/bin/bash
 # install.sh — DWM окружение на CachyOS/Arch
-# Версия 12.8 — Финал. Нативный Трей, Gaps, 4px обводка, однородный бар, точный CPU, очистка буфера
+# Версия 12.9 — Полный стабильный билд: Трей, Gaps, 4px обводка, однородный бар, точный CPU, Clipmenu clear
 
 set -e
 
@@ -19,7 +19,7 @@ warn()  { echo -e "${YELLOW}[!]${NC} $1"; }
 err()   { echo -e "${RED}[✗]${NC} $1"; exit 1; }
 info()  { echo -e "${CYAN}[i]${NC} $1"; }
 
-# ===================== ЗАВИСИМОСТИ =====================
+# ===================== 1. ЗАВИСИМОСТИ =====================
 install_packages() {
     log "Обновление системы..."
     sudo pacman -Syu --noconfirm || warn "Не удалось обновить базы данных пакетов, продолжаем со старыми..."
@@ -50,7 +50,7 @@ install_packages() {
         clipmenu
 }
 
-# ===================== YAY =====================
+# ===================== 2. YAY =====================
 install_yay() {
     if ! command -v yay &>/dev/null; then
         log "Установка yay..."
@@ -71,7 +71,7 @@ install_yay() {
     fi
 }
 
-# ===================== AUR ПАКЕТЫ =====================
+# ===================== 3. AUR ПАКЕТЫ =====================
 install_aur_packages() {
     log "Установка AUR пакетов..."
 
@@ -103,7 +103,7 @@ install_aur_packages() {
         warn "xidlehook не установлен."
 }
 
-# ===================== УМНЫЙ ЗАГРУЗЧИК С ЗЕРКАЛАМИ =====================
+# ===================== 4. ЗАГРУЗЧИК ПАТЧЕЙ =====================
 download_patch_with_fallback() {
     local name=$1
     local out=$2
@@ -133,7 +133,7 @@ download_patch_with_fallback() {
     err "Критическая ошибка: Не удалось скачать рабочий патч $name."
 }
 
-# ===================== СБОРКА DWM =====================
+# ===================== 5. СБОРКА DWM =====================
 build_dwm() {
     log "Загрузка официального чистого архива DWM 6.4..."
     mkdir -p ~/suckless
@@ -172,7 +172,7 @@ build_dwm() {
     sed -i 's/LIBS = -L${X11LIB} -lX11 ${XINERAMALIBS} ${FREETYPELIBS}/LIBS = -L${X11LIB} -lX11 ${XINERAMALIBS} ${FREETYPELIBS} -lX11-xcb -lxcb -lxcb-res/g' config.mk
 
     cat > config.h << 'DWMCONFIG'
-/* DWM config.h — v12.8 (Warm Monochrome) */
+/* DWM config.h — v12.9 (Warm Monochrome) */
 
 static const unsigned int borderpx       = 4;   /* Четкая жирная обводка 4px */
 static const unsigned int snap           = 16;
@@ -345,7 +345,7 @@ DWMCONFIG
     cd ~/suckless
 }
 
-# ===================== СБОРКА DMENU =====================
+# ===================== 6. СБОРКА DMENU =====================
 build_dmenu() {
     log "Загрузка и сборка dmenu..."
     mkdir -p ~/suckless
@@ -378,119 +378,7 @@ DMENUCONFIG
     cd ~/suckless
 }
 
-# ===================== БУФЕР ОБМЕНА (clipmenu) =====================
-create_clipmenu_config() {
-    log "Настройка буфера обмена (clipmenu)..."
-    mkdir -p ~/bin
-
-    cat > ~/bin/clipmenu-picker << 'CLIPMENU'
-#!/bin/bash
-export PATH="/usr/local/bin:/usr/bin:/bin:$HOME/bin:$PATH"
-export CM_LAUNCHER=dmenu
-
-export DMENU_ARGS="-fn 'JetBrains Mono:size=11' -l 20 -nb '#0c0b0a' -nf '#b5ada6' -sb '#0c0b0a' -sf '#f5efe6' -p 'clipboard:'"
-
-exec clipmenu
-CLIPMENU
-
-    # Скрипт очистки истории буфера
-    cat > ~/bin/clipmenu-clear << 'CLIPCLEAR'
-#!/bin/bash
-export PATH="/usr/local/bin:/usr/bin:/bin:$HOME/bin:$PATH"
-
-CONFIRM=$(echo -e "Нет, оставить\nДа, очистить историю" | dmenu \
-    -fn "JetBrains Mono:size=11" \
-    -nb "#0c0b0a" \
-    -nf "#b5ada6" \
-    -sb "#0c0b0a" \
-    -sf "#f5efe6" \
-    -p "Очистить историю буфера?")
-
-if [[ "$CONFIRM" == *"Да"* ]]; then
-    clipdel -d ".*"
-    notify-send "Буфер обмена" "История буфера очищена!" -i edit-clear
-fi
-CLIPCLEAR
-
-    chmod +x ~/bin/clipmenu-picker ~/bin/clipmenu-clear
-
-    mkdir -p ~/.config/clipmenu
-    cat > ~/.config/clipmenu/config << 'CLIPMENUCFG'
-export CM_LAUNCHER=dmenu
-export CM_HISTLENGTH=200
-export CM_MAX_CLIPS=1000
-export CM_IGNORE_WINDOW="^(KeePassXC|Bitwarden)"
-CLIPMENUCFG
-
-    log "Clipmenu настроен (Super+V — история, Super+Shift+V — очистка)"
-}
-
-# ===================== ЦЕНТР УВЕДОМЛЕНИЙ =====================
-create_notification_center() {
-    log "Создание центра уведомлений..."
-    mkdir -p ~/bin
-
-    cat > ~/bin/notification-center << 'NOTIFCENTER'
-#!/bin/bash
-export PATH="/usr/local/bin:/usr/bin:/bin:$HOME/bin:$PATH"
-
-if ! command -v dunstctl &>/dev/null; then
-    notify-send "Ошибка" "dunstctl не найден" -u critical
-    exit 1
-fi
-
-COUNT=$(dunstctl count history 2>/dev/null | head -1)
-WAITING=$(dunstctl count waiting 2>/dev/null | head -1)
-DISPLAYED=$(dunstctl count displayed 2>/dev/null | head -1)
-
-MENU=""
-MENU+="  История: ${COUNT:-0} | Показано: ${DISPLAYED:-0} | Ожидает: ${WAITING:-0}\n"
-MENU+="─────────────────────────────────\n"
-MENU+="  Показать последнее уведомление\n"
-MENU+="  Закрыть текущее\n"
-MENU+="  Закрыть все\n"
-MENU+="  Открыть контекстное меню\n"
-MENU+="  Пауза уведомлений\n"
-MENU+="  Возобновить уведомления\n"
-
-CHOICE=$(echo -e "$MENU" | dmenu \
-    -fn "JetBrains Mono:size=11" \
-    -l 10 \
-    -nb "#0c0b0a" \
-    -nf "#b5ada6" \
-    -sb "#0c0b0a" \
-    -sf "#f5efe6" \
-    -p "notifications:")
-
-case "$CHOICE" in
-    *"Показать последнее"*)
-        dunstctl history-pop
-        ;;
-    *"Закрыть текущее"*)
-        dunstctl close
-        ;;
-    *"Закрыть все"*)
-        dunstctl close-all
-        ;;
-    *"Открыть контекстное"*)
-        dunstctl context
-        ;;
-    *"Пауза"*)
-        dunstctl set-paused true
-        notify-send "Dunst" "Уведомления приостановлены" 2>/dev/null
-        ;;
-    *"Возобновить"*)
-        dunstctl set-paused false
-        notify-send "Dunst" "Уведомления возобновлены" 2>/dev/null
-        ;;
-esac
-NOTIFCENTER
-
-    chmod +x ~/bin/notification-center
-    log "Центр уведомлений создан (Super+~ — открыть)"
-}
-
-# ===================== LOCKSCREEN =====================
+# ===================== 7. LOCKSCREEN =====================
 create_lockscreen() {
     log "Создание блокировки..."
     mkdir -p ~/bin
@@ -549,7 +437,7 @@ LOCKSCREEN
     chmod +x ~/bin/lockscreen
 }
 
-# ===================== СКРИНШОТЫ =====================
+# ===================== 8. СКРИНШОТЫ =====================
 create_screenshot_script() {
     log "Создание скриншотов..."
     mkdir -p ~/bin ~/Pictures/Screenshots
@@ -583,7 +471,7 @@ SCREENSHOTFULL
     chmod +x ~/bin/screenshot ~/bin/screenshot-full
 }
 
-# ===================== TELEGRAM =====================
+# ===================== 9. TELEGRAM =====================
 create_telegram_launcher() {
     log "Создание Telegram..."
     mkdir -p ~/bin
@@ -603,7 +491,7 @@ TELEGRAM
     chmod +x ~/bin/telegram
 }
 
-# ===================== ALACRITTY =====================
+# ===================== 10. ALACRITTY =====================
 create_alacritty_config() {
     log "Создание Alacritty..."
     mkdir -p ~/.config/alacritty
@@ -694,7 +582,7 @@ hide_when_typing = true
 ALACRITTY
 }
 
-# ===================== МЫШЬ =====================
+# ===================== 11. МЫШЬ =====================
 create_mouse_config() {
     log "Отключение акселерации..."
     sudo mkdir -p /etc/X11/xorg.conf.d
@@ -715,7 +603,7 @@ EndSection
 MOUSECONF
 }
 
-# ===================== NIGHTSHIFT =====================
+# ===================== 12. NIGHTSHIFT =====================
 create_nightshift() {
     log "Создание Nightshift..."
     mkdir -p ~/bin
@@ -785,7 +673,7 @@ NSRESET
     fi
 }
 
-# ===================== СТАТУС-БАР (ТОЧНЫЙ CPU МАКСИМУМ 100%) =====================
+# ===================== 13. СТАТУС-БАР =====================
 create_statusbar() {
     log "Создание статус-бара..."
     mkdir -p ~/suckless
@@ -802,7 +690,7 @@ while true; do
     DATE=$(date +'%a %d %b')
     TIME=$(date +'%H:%M')
 
-    # Уведомления (индикатор в баре)
+    # Уведомления
     NOTIF=""
     if command -v dunstctl &>/dev/null; then
         N=$(dunstctl count history 2>/dev/null | head -1)
@@ -856,10 +744,9 @@ while true; do
         fi
     fi
 
-    # CPU (Абсолютно стабильный, физически точный расчет задержкой дельты в 0.2s)
+    # CPU (Точный расчет в пределах 0-100%)
     CPU=$(ux=$(grep '^cpu ' /proc/stat); sleep 0.2; uy=$(grep '^cpu ' /proc/stat); echo "$ux $uy" | awk '{t1=$2+$3+$4+$5+$6+$7+$8+$9; i1=$5; t2=$11+$12+$13+$14+$15+$16+$17+$18; i2=$14; if (t2-t1 > 0) printf "%d", 100*(1-(i2-i1)/(t2-t1)); else printf "0"}')
 
-    # Защитный лимитер
     [ -n "$CPU" ] || CPU="0"
     [ "$CPU" -gt 100 ] && CPU=100
     [ "$CPU" -lt 0 ] && CPU=0
@@ -873,7 +760,74 @@ STATUSBAR
     chmod +x ~/suckless/dwm-statusbar.sh
 }
 
-# ===================== LF =====================
+# ===================== 14. GTK ТЕМА =====================
+create_gtk_theme() {
+    log "Настройка GTK темы..."
+
+    mkdir -p ~/.config/gtk-3.0
+    cat > ~/.config/gtk-3.0/settings.ini << 'GTK3'
+[Settings]
+gtk-theme-name=Adwaita-dark
+gtk-icon-theme-name=Adwaita
+gtk-font-name=JetBrains Mono 11
+gtk-cursor-theme-name=Adwaita
+gtk-cursor-theme-size=24
+gtk-application-prefer-dark-theme=1
+GTK3
+
+    mkdir -p ~/.config/gtk-4.0
+    cat > ~/.config/gtk-4.0/settings.ini << 'GTK4'
+[Settings]
+gtk-theme-name=Adwaita-dark
+gtk-icon-theme-name=Adwaita
+gtk-font-name=JetBrains Mono 11
+gtk-application-prefer-dark-theme=1
+GTK4
+
+    cat > ~/.gtkrc-2.0 << 'GTK2'
+gtk-theme-name="Adwaita-dark"
+gtk-icon-theme-name="Adwaita"
+gtk-font-name="JetBrains Mono 11"
+GTK2
+
+    mkdir -p ~/.config/environment.d
+    cat > ~/.config/environment.d/10-dark-theme.conf << 'ENVDARK'
+GTK_THEME=Adwaita-dark
+QT_STYLE_OVERRIDE=Adwaita-Dark
+QT_QPA_PLATFORMTHEME=gtk3
+ENVDARK
+
+    mkdir -p ~/.config/xsettingsd
+    cat > ~/.config/xsettingsd/xsettingsd.conf << 'XSETTINGS'
+Net/ThemeName "Adwaita-dark"
+Net/IconThemeName "Adwaita"
+Gtk/CursorThemeName "Adwaita"
+Gtk/CursorThemeSize 24
+Gtk/FontName "JetBrains Mono 11"
+Gtk/ApplicationPreferDarkTheme 1
+XSETTINGS
+}
+
+apply_dark_theme_now() {
+    if command -v gsettings &>/dev/null; then
+        gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark' 2>/dev/null || true
+        gsettings set org.gnome.desktop.interface gtk-theme 'Adwaita-dark' 2>/dev/null || true
+        gsettings set org.gnome.desktop.interface icon-theme 'Adwaita' 2>/dev/null || true
+    fi
+
+    for shellrc in ~/.bashrc ~/.zshrc; do
+        [ -f "$shellrc" ] || continue
+        if ! grep -q "GTK_THEME=Adwaita-dark" "$shellrc"; then
+            echo '' >> "$shellrc"
+            echo '# Тёмная тема' >> "$shellrc"
+            echo 'export GTK_THEME=Adwaita-dark' >> "$shellrc"
+            echo 'export QT_QPA_PLATFORMTHEME=gtk3' >> "$shellrc"
+            echo 'export QT_STYLE_OVERRIDE=Adwaita-Dark' >> "$shellrc"
+        fi
+    done
+}
+
+# ===================== 15. LF =====================
 create_lf_config() {
     log "Создание LF..."
     mkdir -p ~/.config/lf
@@ -949,74 +903,376 @@ BASHRC_LS
     fi
 }
 
-# ===================== GTK ТЕМА =====================
-create_gtk_theme() {
-    log "Настройка GTK темы..."
+# ===================== 16. PICOM =====================
+create_picom_config() {
+    log "Создание конфигурации Picom..."
+    mkdir -p ~/.config/picom
+    cat > ~/.config/picom/picom.conf << 'PICOM'
+backend = "xrender";
+shadow = true;
+shadow-radius = 12;
+shadow-offset-x = -7;
+shadow-offset-y = -7;
+shadow-opacity = 0.6;
+shadow-color = "#0c0b0a";
 
-    mkdir -p ~/.config/gtk-3.0
-    cat > ~/.config/gtk-3.0/settings.ini << 'GTK3'
-[Settings]
-gtk-theme-name=Adwaita-dark
-gtk-icon-theme-name=Adwaita
-gtk-font-name=JetBrains Mono 11
-gtk-cursor-theme-name=Adwaita
-gtk-cursor-theme-size=24
-gtk-application-prefer-dark-theme=1
-GTK3
+shadow-exclude = [
+    "class_g = 'dwm'",
+    "class_g = 'Dwm'"
+];
 
-    mkdir -p ~/.config/gtk-4.0
-    cat > ~/.config/gtk-4.0/settings.ini << 'GTK4'
-[Settings]
-gtk-theme-name=Adwaita-dark
-gtk-icon-theme-name=Adwaita
-gtk-font-name=JetBrains Mono 11
-gtk-application-prefer-dark-theme=1
-GTK4
+inactive-opacity = 0.95;
+active-opacity = 1.0;
+frame-opacity = 1.0;
 
-    cat > ~/.gtkrc-2.0 << 'GTK2'
-gtk-theme-name="Adwaita-dark"
-gtk-icon-theme-name="Adwaita"
-gtk-font-name="JetBrains Mono 11"
-GTK2
+fading = true;
+fade-in-step = 0.06;
+fade-out-step = 0.06;
+fade-delta = 5;
 
-    mkdir -p ~/.config/environment.d
-    cat > ~/.config/environment.d/10-dark-theme.conf << 'ENVDARK'
-GTK_THEME=Adwaita-dark
-QT_STYLE_OVERRIDE=Adwaita-Dark
-QT_QPA_PLATFORMTHEME=gtk3
-ENVDARK
-
-    mkdir -p ~/.config/xsettingsd
-    cat > ~/.config/xsettingsd/xsettingsd.conf << 'XSETTINGS'
-Net/ThemeName "Adwaita-dark"
-Net/IconThemeName "Adwaita"
-Gtk/CursorThemeName "Adwaita"
-Gtk/CursorThemeSize 24
-Gtk/FontName "JetBrains Mono 11"
-Gtk/ApplicationPreferDarkTheme 1
-XSETTINGS
+corner-radius = 0;
+vsync = true;
+PICOM
 }
 
-apply_dark_theme_now() {
-    if command -v gsettings &>/dev/null; then
-        gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark' 2>/dev/null || true
-        gsettings set org.gnome.desktop.interface gtk-theme 'Adwaita-dark' 2>/dev/null || true
-        gsettings set org.gnome.desktop.interface icon-theme 'Adwaita' 2>/dev/null || true
-    fi
+# ===================== 17. DUNST =====================
+create_dunst_config() {
+    log "Настройка dunst..."
+    mkdir -p ~/.config/dunst
+    cat > ~/.config/dunst/dunstrc << 'DUNST'
+[global]
+    monitor = 0
+    follow = mouse
+    width = 350
+    height = 100
+    origin = top-right
+    offset = 20x40
+    frame_width = 2
+    frame_color = "#3a3632"
+    font = JetBrains Mono 10
+    corner_radius = 0
 
-    for shellrc in ~/.bashrc ~/.zshrc; do
-        [ -f "$shellrc" ] || continue
-        if ! grep -q "GTK_THEME=Adwaita-dark" "$shellrc"; then
-            echo '' >> "$shellrc"
-            echo '# Тёмная тема' >> "$shellrc"
-            echo 'export GTK_THEME=Adwaita-dark' >> "$shellrc"
-            echo 'export QT_QPA_PLATFORMTHEME=gtk3' >> "$shellrc"
-            echo 'export QT_STYLE_OVERRIDE=Adwaita-Dark' >> "$shellrc"
-        fi
-    done
+    sticky_history = yes
+    history_length = 50
+
+    icon_position = left
+    min_icon_size = 32
+    max_icon_size = 48
+
+    progress_bar = true
+    progress_bar_height = 8
+    progress_bar_frame_width = 1
+    progress_bar_min_width = 100
+    progress_bar_max_width = 300
+
+    format = "<b>%s</b>\n%b"
+    show_age_threshold = 60
+    ellipsize = middle
+    word_wrap = yes
+
+    show_indicators = yes
+
+    mouse_left_click = do_action, close_current
+    mouse_middle_click = close_all
+    mouse_right_click = context
+
+[urgency_low]
+    background = "#0c0b0a"
+    foreground = "#b5ada6"
+    frame_color = "#3a3632"
+    timeout = 5
+
+[urgency_normal]
+    background = "#0c0b0a"
+    foreground = "#d5cdc4"
+    frame_color = "#5a544d"
+    timeout = 10
+
+[urgency_critical]
+    background = "#1c1a18"
+    foreground = "#f5efe6"
+    frame_color = "#f5efe6"
+    timeout = 0
+DUNST
 }
 
-# ===================== ДИАГНОСТИКА =====================
+# ===================== 18. БУФЕР ОБМЕНА =====================
+create_clipmenu_config() {
+    log "Настройка буфера обмена (clipmenu)..."
+    mkdir -p ~/bin
+
+    cat > ~/bin/clipmenu-picker << 'CLIPMENU'
+#!/bin/bash
+export PATH="/usr/local/bin:/usr/bin:/bin:$HOME/bin:$PATH"
+export CM_LAUNCHER=dmenu
+
+export DMENU_ARGS="-fn 'JetBrains Mono:size=11' -l 20 -nb '#0c0b0a' -nf '#b5ada6' -sb '#0c0b0a' -sf '#f5efe6' -p 'clipboard:'"
+
+exec clipmenu
+CLIPMENU
+
+    cat > ~/bin/clipmenu-clear << 'CLIPCLEAR'
+#!/bin/bash
+export PATH="/usr/local/bin:/usr/bin:/bin:$HOME/bin:$PATH"
+
+CONFIRM=$(echo -e "Нет, оставить\nДа, очистить историю" | dmenu \
+    -fn "JetBrains Mono:size=11" \
+    -nb "#0c0b0a" \
+    -nf "#b5ada6" \
+    -sb "#0c0b0a" \
+    -sf "#f5efe6" \
+    -p "Очистить историю буфера?")
+
+if [[ "$CONFIRM" == *"Да"* ]]; then
+    clipdel -d ".*"
+    notify-send "Буфер обмена" "История буфера очищена!" -i edit-clear
+fi
+CLIPCLEAR
+
+    chmod +x ~/bin/clipmenu-picker ~/bin/clipmenu-clear
+
+    mkdir -p ~/.config/clipmenu
+    cat > ~/.config/clipmenu/config << 'CLIPMENUCFG'
+export CM_LAUNCHER=dmenu
+export CM_HISTLENGTH=200
+export CM_MAX_CLIPS=1000
+export CM_IGNORE_WINDOW="^(KeePassXC|Bitwarden)"
+CLIPMENUCFG
+
+    log "Clipmenu настроен (Super+V — история, Super+Shift+V — очистка)"
+}
+
+# ===================== 19. ЦЕНТР УВЕДОМЛЕНИЙ =====================
+create_notification_center() {
+    log "Создание центра уведомлений..."
+    mkdir -p ~/bin
+
+    cat > ~/bin/notification-center << 'NOTIFCENTER'
+#!/bin/bash
+export PATH="/usr/local/bin:/usr/bin:/bin:$HOME/bin:$PATH"
+
+if ! command -v dunstctl &>/dev/null; then
+    notify-send "Ошибка" "dunstctl не найден" -u critical
+    exit 1
+fi
+
+COUNT=$(dunstctl count history 2>/dev/null | head -1)
+WAITING=$(dunstctl count waiting 2>/dev/null | head -1)
+DISPLAYED=$(dunstctl count displayed 2>/dev/null | head -1)
+
+MENU=""
+MENU+="  История: ${COUNT:-0} | Показано: ${DISPLAYED:-0} | Ожидает: ${WAITING:-0}\n"
+MENU+="─────────────────────────────────\n"
+MENU+="  Показать последнее уведомление\n"
+MENU+="  Закрыть текущее\n"
+MENU+="  Закрыть все\n"
+MENU+="  Открыть контекстное меню\n"
+MENU+="  Пауза уведомлений\n"
+MENU+="  Возобновить уведомления\n"
+
+CHOICE=$(echo -e "$MENU" | dmenu \
+    -fn "JetBrains Mono:size=11" \
+    -l 10 \
+    -nb "#0c0b0a" \
+    -nf "#b5ada6" \
+    -sb "#0c0b0a" \
+    -sf "#f5efe6" \
+    -p "notifications:")
+
+case "$CHOICE" in
+    *"Показать последнее"*)
+        dunstctl history-pop
+        ;;
+    *"Закрыть текущее"*)
+        dunstctl close
+        ;;
+    *"Закрыть все"*)
+        dunstctl close-all
+        ;;
+    *"Открыть контекстное"*)
+        dunstctl context
+        ;;
+    *"Пауза"*)
+        dunstctl set-paused true
+        notify-send "Dunst" "Уведомления приостановлены" 2>/dev/null
+        ;;
+    *"Возобновить"*)
+        dunstctl set-paused false
+        notify-send "Dunst" "Уведомления возобновлены" 2>/dev/null
+        ;;
+esac
+NOTIFCENTER
+
+    chmod +x ~/bin/notification-center
+    log "Центр уведомлений создан (Super+~ — открыть)"
+}
+
+# ===================== 20. DWM-SESSION =====================
+create_dwm_session() {
+    log "Создание dwm-session..."
+
+    sudo tee /usr/local/bin/dwm-session > /dev/null << 'DWMSESSION'
+#!/bin/bash
+
+export DISPLAY="${DISPLAY:-:0}"
+export XDG_SESSION_TYPE="x11"
+export XDG_CURRENT_DESKTOP="DWM"
+export XDG_SESSION_DESKTOP="dwm"
+export PATH="$HOME/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+
+export GTK_THEME="Adwaita-dark"
+export QT_QPA_PLATFORMTHEME="gtk3"
+export QT_STYLE_OVERRIDE="Adwaita-Dark"
+
+export LANG="ru_RU.UTF-8"
+export LC_ALL="ru_RU.UTF-8"
+
+LOG="$HOME/.dwm-session.log"
+echo "=== $(date) — DWM session started ===" > "$LOG"
+
+if command -v dbus-update-activation-environment &>/dev/null; then
+    dbus-update-activation-environment --systemd DISPLAY XAUTHORITY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP
+    echo "D-Bus environment updated" >> "$LOG"
+fi
+
+setxkbmap -layout us,ru -option grp:win_space_toggle &
+echo "Keyboard layout US/RU initialized (Switch with Win+Space)" >> "$LOG"
+
+# ─── УСТАНОВКА ОБОЕВ (ПРОСТАЯ НАСТРОЙКА ПУТИ) ───
+WALLPAPER="$HOME/Pictures/Wallpapers/wallpaper.png"
+
+if [ -f "$WALLPAPER" ] && command -v feh &>/dev/null; then
+    feh --bg-fill "$WALLPAPER" &
+    echo "Wallpaper loaded from: $WALLPAPER" >> "$LOG"
+else
+    xsetroot -solid "#0c0b0a" &
+    echo "Wallpaper file $WALLPAPER not found. Solid background applied." >> "$LOG"
+fi
+
+xsetroot -cursor_name left_ptr &
+
+xsettingsd &
+sleep 0.2
+
+pkill -x picom 2>/dev/null
+picom --config "$HOME/.config/picom/picom.conf" -b 2>>"$LOG" &
+
+pkill -x dunst 2>/dev/null
+dunst 2>>"$LOG" &
+echo "Dunst restarted" >> "$LOG"
+
+pkill -f clipmenud 2>/dev/null
+export CM_LAUNCHER=dmenu
+clipmenud >> "$LOG" 2>&1 &
+echo "clipmenud restarted" >> "$LOG"
+
+lxsession 2>>"$LOG" &
+
+if [ -x "$HOME/suckless/dwm-statusbar.sh" ]; then
+    "$HOME/suckless/dwm-statusbar.sh" >> "$LOG" 2>&1 &
+fi
+
+(
+    sleep 2
+    nm-applet 2>>"$LOG" &
+    blueman-applet 2>>"$LOG" &
+    echo "Applets docked into built-in systray" >> "$LOG"
+) &
+
+if command -v xidlehook &>/dev/null; then
+    xidlehook \
+        --not-when-fullscreen \
+        --not-when-audio \
+        --timer 600 "$HOME/bin/lockscreen" '' 2>>"$LOG" &
+fi
+
+if [ -x "$HOME/bin/nightshift" ]; then
+    "$HOME/bin/nightshift" 2>>"$LOG" &
+fi
+
+echo "Starting DWM..." >> "$LOG"
+exec dwm
+DWMSESSION
+
+    sudo chmod +x /usr/local/bin/dwm-session
+    log "dwm-session создан и настроен!"
+}
+
+# ===================== 21. СЕССИЯ =====================
+create_session() {
+    log "Создание сессии для ly..."
+    sudo mkdir -p /usr/share/xsessions
+    sudo tee /usr/share/xsessions/dwm.desktop > /dev/null << 'SESSION'
+[Desktop Entry]
+Encoding=UTF-8
+Name=DWM
+Comment=Dynamic Window Manager
+Exec=/usr/local/bin/dwm-session
+Icon=dwm
+Type=XSession
+SESSION
+
+    cat > ~/.xinitrc << 'XINITRC'
+#!/bin/sh
+exec /usr/local/bin/dwm-session
+XINITRC
+    chmod +x ~/.xinitrc
+}
+
+# ===================== 22. ШПАРГАЛКА =====================
+create_cheatsheet() {
+    cat > ~/dwm-keybinds.txt << 'CHEAT'
+╔══════════════════════════════════════════════════════════════╗
+║                    DWM KEYBINDINGS v12.9                     ║
+╠══════════════════════════════════════════════════════════════╣
+║  ЗАПУСК ПРОГРАММ                                             ║
+║  Super + Enter        — Терминал                             ║
+║  Super + D            — dmenu (все программы)                ║
+║  Super + W            — Zen Browser                          ║
+║  Super + E            — LF файловый менеджер                 ║
+║  Super + T            — Telegram                             ║
+║  Super + Shift + S    — Steam                                ║
+║  Super + Shift + L    — Заблокировать экран                  ║
+║  Super + Space        — Смена раскладки (US/RU)              ║
+║                                                              ║
+║  БУФЕР ОБМЕНА (clipmenu)                                     ║
+║  Super + V            — Открыть историю буфера обмена        ║
+║  Super + Shift + V    — Очистить историю буфера обмена       ║
+║                                                              ║
+║  УВЕДОМЛЕНИЯ (dunst)                                         ║
+║  Super + `            — Центр уведомлений (тильда/ё)         ║
+║  Super + X            — Закрыть текущее уведомление          ║
+║  Super + Shift + X    — Закрыть ВСЕ уведомления              ║
+║  ЛКМ по бару          — Открыть центр уведомлений            ║
+║  ПКМ по бару          — Открыть буфер обмена                 ║
+║                                                              ║
+║  СКРИНШОТЫ                                                   ║
+║  Print                — Скриншот выделенной области          ║
+║  Shift + Print        — Скриншот всего экрана                ║
+║                                                              ║
+║  ОКНА                                                        ║
+║  Super + J/K          — Переключение между окнами            ║
+║  Super + H/L          — Изменение размера master             ║
+║  Super + Shift+Enter  — Сделать окно главным                 ║
+║  Super + Shift + Q    — Закрыть окно                         ║
+║  Super + ;            — Tile (плитка)                        ║
+║  Super + Shift + ;    — Float (плавающие)                    ║
+║  Super + M            — Monocle (один экран)                 ║
+║  Super + N            — Переключить раскладку                ║
+║  Super + Shift + N    — Плавающее окно                       ║
+║  Super + B            — Скрыть панель                        ║
+║                                                              ║
+║  РАБОЧИЕ СТОЛЫ                                               ║
+║  Super + 1..9         — Переключить                          ║
+║  Super + Shift + 1..9 — Перенести окно                       ║
+║                                                              ║
+║  ВЫХОД                                                       ║
+║  Ctrl+Super+Shift+Q   — Выйти из DWM                         ║
+╚══════════════════════════════════════════════════════════════╝
+CHEAT
+}
+
+# ===================== 23. ДИАГНОСТИКА =====================
 run_diagnostics() {
     echo ""
     echo -e "${CYAN}═══════════ ДИАГНОСТИКА ═══════════${NC}"
@@ -1041,7 +1297,7 @@ run_diagnostics() {
 main() {
     echo ""
     echo -e "${CYAN}╔══════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║   DWM Warm Monochrome v12.8                 ║${NC}"
+    echo -e "${CYAN}║   DWM Warm Monochrome v12.9                 ║${NC}"
     echo -e "${CYAN}║   Нативный Трей + Gaps + Однородный Бар      ║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
@@ -1078,16 +1334,14 @@ main() {
     echo -e "${GREEN}║          УСТАНОВКА ЗАВЕРШЕНА!                ║${NC}"
     echo -e "${GREEN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
-    info "Улучшения v12.8:"
-    echo "  ✓ Трей нативно интегрирован. Ошибки наложения патча решены (обход блокировки по User-Agent)."
-    echo "  ✓ Специфические лимиты RAW-запросов GitHub/Suckless больше не блокируют сборку."
-    echo "  ✓ Добавлена очистка истории буфера обмена: Super+Shift+V."
-    echo "  ✓ Нагрузка CPU в статус-баре теперь точная (строго от 0% до 100%)."
-    echo "  ✓ Рамки окон стали толще и стильнее (borderpx = 4)."
-    echo "  ✓ Панель стала абсолютно однородной (полностью глубокий черный цвет без серых плашек)."
-    echo "  ✓ Генерация обоев отключена. Путь к картинке меняется в /usr/local/bin/dwm-session."
+    info "Все изменения применены:"
+    echo "  ✓ Трей нативно встроен в бар DWM."
+    echo "  ✓ Отступы окон (Gaps) и 4px жирная обводка активны."
+    echo "  ✓ Загрузка CPU считается строго в диапазоне 0-100%."
+    echo "  ✓ Буфер обмена чистится через Super+Shift+V."
+    echo "  ✓ Фон панели монолитный глубокий черный."
     echo ""
-    warn "Для вступления изменений в силу перезагрузитесь: reboot"
+    warn "Для входа в полностью настроенное окружение выполните: reboot"
     echo ""
 }
 
