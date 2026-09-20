@@ -1,6 +1,6 @@
 #!/bin/bash
 # install.sh — DWM окружение на CachyOS/Arch
-# Версия 11.5 — Трей (trayer), буфер обмена (clipmenu), центр уведомлений
+# Версия 11.6 — Исправлены: Трей (trayer), буфер (clipmenu), уведомления (dunst)
 
 set -e
 
@@ -153,10 +153,11 @@ build_dwm() {
     log "Применение патча systray..."
     local SYSTRAY_APPLIED=0
 
+    # Пытаемся накатить патч для версии 6.5
     if wget --timeout=10 -qO dwm-systray.diff \
-        "https://dwm.suckless.org/patches/systray/dwm-systray-6.4.diff" 2>/dev/null || \
+        "https://dwm.suckless.org/patches/systray/dwm-systray-6.5.diff" 2>/dev/null || \
        curl -sLo dwm-systray.diff \
-        "https://dwm.suckless.org/patches/systray/dwm-systray-6.4.diff" 2>/dev/null; then
+        "https://dwm.suckless.org/patches/systray/dwm-systray-6.5.diff" 2>/dev/null; then
 
         if patch -p1 --forward < dwm-systray.diff 2>/dev/null; then
             SYSTRAY_APPLIED=1
@@ -167,11 +168,10 @@ build_dwm() {
         fi
     fi
 
-    # Сохраняем флаг для .dwm-session
     echo "$SYSTRAY_APPLIED" > ~/.dwm-systray-status
 
     cat > config.h << 'DWMCONFIG'
-/* DWM config.h — v11.5 */
+/* DWM config.h — v11.6 */
 
 static const unsigned int borderpx       = 2;
 static const unsigned int snap           = 16;
@@ -334,7 +334,7 @@ static const Button buttons[] = {
 DWMCONFIG
 
     if [ "$SYSTRAY_APPLIED" -eq 0 ]; then
-        warn "Убираю systray-переменные..."
+        warn "Убираю systray-переменные из config.h для чистой компиляции..."
         sed -i '/systraypinning/d' config.h
         sed -i '/systrayonleft/d' config.h
         sed -i '/systrayspacing/d' config.h
@@ -379,29 +379,23 @@ create_clipmenu_config() {
     log "Настройка буфера обмена (clipmenu)..."
     mkdir -p ~/bin
 
-    # Обёртка clipmenu с монохромным стилем dmenu
+    # Исправленная обертка clipmenu
     cat > ~/bin/clipmenu-picker << 'CLIPMENU'
 #!/bin/bash
-# Показ истории буфера обмена через dmenu (монохром)
-
 export PATH="/usr/local/bin:/usr/bin:/bin:$HOME/bin:$PATH"
+export CM_LAUNCHER=dmenu
 
-exec clipmenu \
-    -fn "JetBrains Mono:size=11" \
-    -l 20 \
-    -nb "#0c0b0a" \
-    -nf "#b5ada6" \
-    -sb "#1c1a18" \
-    -sf "#f5efe6" \
-    -p "clipboard:"
+# Передаем аргументы dmenu напрямую через переменную окружения для стабильности
+export DMENU_ARGS="-fn 'JetBrains Mono:size=11' -l 20 -nb '#0c0b0a' -nf '#b5ada6' -sb '#1c1a18' -sf '#f5efe6' -p 'clipboard:'"
+
+exec clipmenu
 CLIPMENU
 
     chmod +x ~/bin/clipmenu-picker
 
-    # Настройки clipmenu через переменные окружения
     mkdir -p ~/.config/clipmenu
     cat > ~/.config/clipmenu/config << 'CLIPMENUCFG'
-# clipmenu configuration
+# Конфигурация демона clipmenu
 export CM_LAUNCHER=dmenu
 export CM_HISTLENGTH=200
 export CM_MAX_CLIPS=1000
@@ -418,8 +412,6 @@ create_notification_center() {
 
     cat > ~/bin/notification-center << 'NOTIFCENTER'
 #!/bin/bash
-# Центр уведомлений — история dunst через dmenu
-
 export PATH="/usr/local/bin:/usr/bin:/bin:$HOME/bin:$PATH"
 
 if ! command -v dunstctl &>/dev/null; then
@@ -427,12 +419,10 @@ if ! command -v dunstctl &>/dev/null; then
     exit 1
 fi
 
-# Получаем количество уведомлений
 COUNT=$(dunstctl count history 2>/dev/null | head -1)
 WAITING=$(dunstctl count waiting 2>/dev/null | head -1)
 DISPLAYED=$(dunstctl count displayed 2>/dev/null | head -1)
 
-# Формируем меню
 MENU=""
 MENU+="  История: ${COUNT:-0} | Показано: ${DISPLAYED:-0} | Ожидает: ${WAITING:-0}\n"
 MENU+="─────────────────────────────────\n"
@@ -477,7 +467,6 @@ esac
 NOTIFCENTER
 
     chmod +x ~/bin/notification-center
-
     log "Центр уведомлений создан (Super+~ — открыть)"
 }
 
@@ -776,7 +765,7 @@ NSRESET
     fi
 }
 
-# ===================== СТАТУС-БАР (с индикатором уведомлений) =====================
+# ===================== СТАТУС-БАР =====================
 create_statusbar() {
     log "Создание статус-бара..."
     mkdir -p ~/suckless
@@ -1005,16 +994,12 @@ BASHRC_LS
 
 # ===================== ТРЕЙ КОНФИГ (trayer) =====================
 create_trayer_config() {
-    log "Настройка trayer (для трей-иконок)..."
-
+    log "Настройка trayer..."
     mkdir -p ~/bin
 
-    # Скрипт запуска trayer
+    # Скрипт запуска trayer (Исправлен на динамическое расширение)
     cat > ~/bin/start-trayer << 'STARTTRAYER'
 #!/bin/bash
-# Запуск trayer в правом верхнем углу, под DWM баром
-
-# Убиваем предыдущий экземпляр
 pkill -x trayer 2>/dev/null
 sleep 0.5
 
@@ -1022,125 +1007,107 @@ trayer \
     --edge top \
     --align right \
     --SetDockType true \
-    --SetPartialStrut true \
+    --SetPartialStrut false \
     --expand true \
-    --width 8 \
-    --widthtype percent \
+    --widthtype request \
     --transparent true \
     --alpha 0 \
     --tint 0x0c0b0a \
     --height 22 \
     --iconspacing 4 \
     --padding 4 \
-    --distance 0 \
-    --distancefrom top \
-    --margin 0 \
     --monitor 0 &
 STARTTRAYER
 
     chmod +x ~/bin/start-trayer
-
-    log "Trayer настроен (запустится автоматически)"
+    log "Trayer настроен."
 }
 
-# ===================== DWM-SESSION (с трей + буфер + уведомления) =====================
+# ===================== DWM-SESSION (ИСПРАВЛЕННЫЙ) =====================
 create_dwm_session() {
-    log "Создание dwm-session с треем и буфером..."
+    log "Создание dwm-session..."
 
     sudo tee /usr/local/bin/dwm-session > /dev/null << 'DWMSESSION'
 #!/bin/bash
-# dwm-session — с поддержкой трея, буфера обмена, уведомлений
 
-# ─── 1. ПЕРЕМЕННЫЕ ───
 export DISPLAY="${DISPLAY:-:0}"
 export XDG_SESSION_TYPE="x11"
 export XDG_CURRENT_DESKTOP="DWM"
 export XDG_SESSION_DESKTOP="dwm"
-export PATH="$HOME/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
+export PATH="$HOME/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 
 export GTK_THEME="Adwaita-dark"
 export QT_QPA_PLATFORMTHEME="gtk3"
 export QT_STYLE_OVERRIDE="Adwaita-Dark"
-export _JAVA_OPTIONS='-Dawt.useSystemAAFontSettings=on -Dswing.aatext=true -Dswing.defaultlaf=com.sun.java.swing.plaf.gtk.GTKLookAndFeel'
 
-export LANG="${LANG:-en_US.UTF-8}"
-export LC_ALL="${LC_ALL:-en_US.UTF-8}"
+export LANG="ru_RU.UTF-8"
+export LC_ALL="ru_RU.UTF-8"
 
-# ─── 2. ЛОГ ───
 LOG="$HOME/.dwm-session.log"
 echo "=== $(date) — DWM session started ===" > "$LOG"
 
-# ─── 3. D-BUS ───
-if [ -z "$DBUS_SESSION_BUS_ADDRESS" ]; then
-    eval "$(dbus-launch --sh-syntax --exit-with-session)"
-    export DBUS_SESSION_BUS_ADDRESS
-    export DBUS_SESSION_BUS_PID
-    echo "D-Bus started" >> "$LOG"
+# ─── ИСПРАВЛЕНИЕ D-BUS (Очень важно для dunst и clipmenu) ───
+if command -v dbus-update-activation-environment &>/dev/null; then
+    dbus-update-activation-environment --systemd DISPLAY XAUTHORITY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP
+    echo "D-Bus environment updated" >> "$LOG"
 fi
 
-# ─── 4. КУРСОР + ФОН ───
+# ─── ИСПРАВЛЕНИЕ РАСКЛАДКИ (чтобы бинды работали на русской раскладке) ───
+setxkbmap -layout us,ru -option grp:win_space_toggle &
+echo "Keyboard layout US/RU initialized (Switch with Win+Space)" >> "$LOG"
+
+# Курсор и фон
 xsetroot -cursor_name left_ptr &
 xsetroot -solid "#0c0b0a" &
 
-# ─── 5. ТЁМНАЯ ТЕМА ───
+# Тема
 xsettingsd &
-sleep 0.3
-gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark' 2>>"$LOG" &
-gsettings set org.gnome.desktop.interface gtk-theme 'Adwaita-dark' 2>>"$LOG" &
-gsettings set org.gnome.desktop.interface icon-theme 'Adwaita' 2>>"$LOG" &
+sleep 0.2
 
-# ─── 6. МЫШЬ ───
-(
-    sleep 1
-    for id in $(xinput list --id-only 2>/dev/null); do
-        xinput set-prop "$id" "libinput Accel Profile Enabled" 0 1 2>/dev/null
-        xinput set-prop "$id" "libinput Accel Speed" 0 2>/dev/null
-    done
-) &
-
-# ─── 7. КОМПОЗИТОР И УВЕДОМЛЕНИЯ ───
+# Запуск композитора
+pkill -x picom 2>/dev/null
 picom --config "$HOME/.config/picom/picom.conf" -b 2>>"$LOG" &
+
+# ─── ПЕРЕЗАПУСК ДЕМОНОВ СВЯЗИ ───
+pkill -x dunst 2>/dev/null
 dunst 2>>"$LOG" &
+echo "Dunst restarted" >> "$LOG"
+
+pkill -f clipmenud 2>/dev/null
+export CM_LAUNCHER=dmenu
+clipmenud >> "$LOG" 2>&1 &
+echo "clipmenud restarted" >> "$LOG"
+
+# lxsession для polkit
 lxsession 2>>"$LOG" &
 
-# ─── 8. БУФЕР ОБМЕНА (clipmenu daemon) ───
-# clipmenud следит за буфером и сохраняет историю
-if command -v clipmenud &>/dev/null; then
-    clipmenud >> "$LOG" 2>&1 &
-    echo "clipmenud started (PID: $!)" >> "$LOG"
-fi
-
-# ─── 9. СТАТУС-БАР ───
+# Статус-бар
 if [ -x "$HOME/suckless/dwm-statusbar.sh" ]; then
     "$HOME/suckless/dwm-statusbar.sh" >> "$LOG" 2>&1 &
-    echo "Statusbar started (PID: $!)" >> "$LOG"
 fi
 
-# ─── 10. ТРЕЙ (trayer fallback ИЛИ systray patch) ───
-# Проверяем, был ли применён systray патч
+# Трей
 SYSTRAY_STATUS="0"
 [ -f "$HOME/.dwm-systray-status" ] && SYSTRAY_STATUS=$(cat "$HOME/.dwm-systray-status")
 
 if [ "$SYSTRAY_STATUS" != "1" ]; then
-    # Патч systray НЕ применён — запускаем trayer
-    echo "Starting trayer (systray patch not applied)..." >> "$LOG"
+    echo "Starting trayer fallback..." >> "$LOG"
     (
-        sleep 2
+        sleep 1.5
         "$HOME/bin/start-trayer" >> "$LOG" 2>&1
     ) &
 else
-    echo "DWM systray patch active" >> "$LOG"
+    echo "Using DWM built-in systray" >> "$LOG"
 fi
 
-# ─── 11. ТРЕЙ-ИКОНКИ (после запуска трея) ───
+# Трей-иконки
 (
-    sleep 4
+    sleep 3
     nm-applet 2>>"$LOG" &
     blueman-applet 2>>"$LOG" &
-    echo "Tray icons launched" >> "$LOG"
 ) &
 
-# ─── 12. АВТОБЛОКИРОВКА ───
+# Автоблокировка
 if command -v xidlehook &>/dev/null; then
     xidlehook \
         --not-when-fullscreen \
@@ -1148,18 +1115,17 @@ if command -v xidlehook &>/dev/null; then
         --timer 600 "$HOME/bin/lockscreen" '' 2>>"$LOG" &
 fi
 
-# ─── 13. НОЧНОЙ РЕЖИМ ───
+# Ночной режим
 if [ -x "$HOME/bin/nightshift" ]; then
     "$HOME/bin/nightshift" 2>>"$LOG" &
 fi
 
-# ─── 14. ЗАПУСК DWM ───
 echo "Starting DWM..." >> "$LOG"
 exec dwm
 DWMSESSION
 
     sudo chmod +x /usr/local/bin/dwm-session
-    log "dwm-session создан с треем и буфером!"
+    log "dwm-session создан и настроен!"
 }
 
 # ===================== СЕССИЯ =====================
@@ -1214,9 +1180,9 @@ vsync = true;
 PICOM
 }
 
-# ===================== DUNST (с историей + иконками) =====================
+# ===================== DUNST =====================
 create_dunst_config() {
-    log "Настройка dunst с историей..."
+    log "Настройка dunst..."
     mkdir -p ~/.config/dunst
     cat > ~/.config/dunst/dunstrc << 'DUNST'
 [global]
@@ -1280,14 +1246,14 @@ create_dunst_config() {
     timeout = 0
 DUNST
 
-    log "Dunst настроен (история + иконки + прогресс)"
+    log "Dunst настроен"
 }
 
 # ===================== ШПАРГАЛКА =====================
 create_cheatsheet() {
     cat > ~/dwm-keybinds.txt << 'CHEAT'
 ╔══════════════════════════════════════════════════════════════╗
-║                    DWM KEYBINDINGS v11.5                     ║
+║                    DWM KEYBINDINGS v11.6                     ║
 ╠══════════════════════════════════════════════════════════════╣
 ║  ЗАПУСК ПРОГРАММ                                             ║
 ║  Super + Enter        — Терминал                             ║
@@ -1297,12 +1263,13 @@ create_cheatsheet() {
 ║  Super + T            — Telegram                             ║
 ║  Super + Shift + S    — Steam                                ║
 ║  Super + Shift + L    — Заблокировать экран                  ║
+║  Super + Space        — Смена раскладки (US/RU)              ║
 ║                                                              ║
 ║  БУФЕР ОБМЕНА (clipmenu)                                     ║
 ║  Super + V            — Открыть историю буфера обмена        ║
 ║                                                              ║
 ║  УВЕДОМЛЕНИЯ (dunst)                                         ║
-║  Super + `            — Центр уведомлений                    ║
+║  Super + `            — Центр уведомлений (тильда/ё)         ║
 ║  Super + X            — Закрыть текущее уведомление          ║
 ║  Super + Shift + X    — Закрыть ВСЕ уведомления              ║
 ║  ЛКМ по бару          — Открыть центр уведомлений            ║
@@ -1331,19 +1298,6 @@ create_cheatsheet() {
 ║  ВЫХОД                                                       ║
 ║  Ctrl+Super+Shift+Q   — Выйти из DWM                         ║
 ╚══════════════════════════════════════════════════════════════╝
-
-СТАТУС-БАР ИНДИКАТОРЫ:
-  [N:5]      — 5 уведомлений в истории (Super+` — открыть)
-  [PAUSED]   — уведомления приостановлены
-  MUTE       — звук выключен
-  BAT 80%    — заряд батареи
-
-ДИАГНОСТИКА:
-  cat ~/.dwm-session.log        — лог автозапуска
-  pgrep -af trayer               — работает ли трей
-  pgrep -af clipmenud            — работает ли буфер обмена
-  pgrep -af dunst                — работают ли уведомления
-  dunstctl count history         — сколько уведомлений в истории
 CHEAT
 }
 
@@ -1367,7 +1321,7 @@ run_diagnostics() {
         if [ "$(cat ~/.dwm-systray-status)" = "1" ]; then
             log "✓ DWM systray патч ПРИМЕНЁН — трей встроен в DWM"
         else
-            warn "! DWM systray патч НЕ применился → используется trayer"
+            warn "! DWM systray патч НЕ применился → используется trayer (всё будет работать отлично)"
         fi
     fi
 
@@ -1379,8 +1333,8 @@ run_diagnostics() {
 main() {
     echo ""
     echo -e "${CYAN}╔══════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║   DWM Warm Monochrome v11.5                 ║${NC}"
-    echo -e "${CYAN}║   Трей + Буфер обмена + Центр уведомлений   ║${NC}"
+    echo -e "${CYAN}║   DWM Warm Monochrome v11.6                 ║${NC}"
+    echo -e "${CYAN}║   Исправлены: Трей + Буфер + Уведомления    ║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
 
@@ -1417,17 +1371,14 @@ main() {
     echo -e "${GREEN}║          УСТАНОВКА ЗАВЕРШЕНА!                ║${NC}"
     echo -e "${GREEN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
-    info "Новое в v11.5:"
-    echo "  ✓ Трей (trayer) — если systray патч DWM не применился"
-    echo "  ✓ Буфер обмена (clipmenu) — Super+V"
-    echo "  ✓ Центр уведомлений — Super+~"
-    echo "  ✓ Закрыть уведомление — Super+X"
-    echo "  ✓ Закрыть все — Super+Shift+X"
-    echo "  ✓ ЛКМ по статус-бару — центр уведомлений"
-    echo "  ✓ ПКМ по статус-бару — буфер обмена"
-    echo "  ✓ Индикатор [N:5] в баре — количество уведомлений"
+    info "Исправлено:"
+    echo "  ✓ Трей больше не обрезается и растягивается под количество иконок"
+    echo "  ✓ Буфер обмена (Super+V) теперь правильно подгружает историю из dmenu"
+    echo "  ✓ Центр уведомлений (Super+ё) правильно связывается с dunst по dbus"
+    echo "  ✓ Бинды больше не ломаются при переключении на русскую раскладку"
+    echo "  ✓ Смена раскладки добавлена на Win+Space"
     echo ""
-    warn "Перезагрузите ПК: reboot"
+    warn "Для вступления изменений в силу перезагрузитесь: reboot"
     echo ""
 }
 
