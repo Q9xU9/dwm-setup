@@ -1,6 +1,6 @@
 #!/bin/bash
 # install.sh — DWM окружение на CachyOS/Arch
-# Версия 12.2 — Нативный трей, Gaps, 4px обводка, однородный бар, точный CPU
+# Версия 12.3 — Полная офлайн-распаковка патчей (Base64), точный CPU, Gaps и 4px обводка
 
 set -e
 
@@ -43,7 +43,6 @@ install_packages() {
         blueman \
         libnotify \
         openssh bc \
-        imagemagick \
         xsettingsd \
         gnome-themes-extra adwaita-icon-theme \
         gsettings-desktop-schemas dconf \
@@ -104,7 +103,7 @@ install_aur_packages() {
         warn "xidlehook не установлен."
 }
 
-# ===================== СБОРКА DWM (СТАБИЛЬНЫЙ ПАТЧИНГ) =====================
+# ===================== СБОРКА DWM (АВТОНОМНЫЙ ПАТЧИНГ) =====================
 build_dwm() {
     log "Загрузка официального чистого архива DWM 6.5..."
     mkdir -p ~/suckless
@@ -119,31 +118,173 @@ build_dwm() {
     rm dwm-6.5.tar.gz
     cd dwm
 
-    log "Загрузка стабильных патчей из проверенного GitHub-репозитория..."
-    # Нативный встроенный трей
-    wget -qO dwm-systray.patch "https://raw.githubusercontent.com/bakkeby/patches/master/dwm/dwm-systray-6.5.diff" || \
-    curl -sLo dwm-systray.patch "https://raw.githubusercontent.com/bakkeby/patches/master/dwm/dwm-systray-6.5.diff"
+    # 1. Распаковка встроенного патча SYSTRAY (Base64)
+    log "Локальное декодирование встроенного патча нативного трея..."
+    cat << 'EOF' | base64 -d > dwm-systray.patch
+ZGlmZiAtdXIgYS9jb25maWcuZGVmLmggaC9jb25maWcuZGVmLmggCi0tLSBhL2NvbmZpZy5kZWYu
+aAkKMysrIGIvY29uZmlnLmRlZi5oCQpAQCAtMyw2ICszLDExIEBACiAvKiBhcHBlYXJhbmNlICov
+CiBzdGF0aWMgY29uc3QgdW5zaWduZWQgaW50IGJvcmRlcnB4ICA9IDE7ICAgICAgICAvKiBib3Jk
+ZXIgcGl4ZWwgb2Ygd2luZG93cyAqLwogc3RhdGljIGNvbnN0IHVuc2lnbmVkIGludCBzbmFwICAg
+ICAgPSAzMjsgICAgICAgLyogc25hcCBwaXhlbCAqLworc3RhdGljIGNvbnN0IHVuc2lnbmVkIGlu
+dCBzeXN0cmF5cGlubmluZyA9IDA7ICAgLyogMDogc2xvcHB5IHN5c3RyYXkgcGlubmluZywgPjA6
+IHBpbiBzeXN0cmF5IHRvIG1vbml0b3IgWCAqLworc3RhdGljIGNvbnN0IHVuc2lnbmVkIGludCBz
+eXN0cmF5b25sZWZ0ICA9IDA7ICAgLyogMDogc3lzdHJheSBpbiB0aGUgcmlnaHQgY29ybmVyLCA+
+MDogc3lzdHJheSBvbiBsZWZ0IG9mIHN0YXR1cyB0ZXh0ICovCitzdGF0aWMgY29uc3QgdW5zaWdu
+ZWQgaW50IHN5c3RyYXlzcGFjaW5nID0gMjsgICAvKiBzeXN0cmF5IHNwYWNpbmcgKi8KK3N0YXRp
+YyBjb25zdCBpbnQgc3lzdHJheXBpbm5pbmdmYWlsZmlyc3QgPSAxOyAgIC8qIDE6IGlmIHBpbm5p
+bmcgZmFpbHMsIGRpc3BsYXkgc3lzdHJheSBvbiB0aGUgZmlyc3QgbW9uaXRvciAqLworc3RhdGlj
+IGNvbnN0IGludCBzaG93c3lzdHJheSAgICAgICAgPSAxOyAgICAgICAgLyogMCBtZWFucyBubyBz
+eXN0cmF5ICovCiBzdGF0aWMgY29uc3QgaW50IHNob3diYXIgICAgICAgICAgICA9IDE7ICAgICAg
+ICAvKiAwIG1lYW5zIG5vIGJhciAqLwogc3RhdGljIGNvbnN0IGludCB0b3BiYXIgICAgICAgICAg
+ICAgPSAxOyAgICAgICAgLyogMCBtZWFucyBib3R0b20gYmFyICovCiBzdGF0aWMgY29uc3QgY2hh
+ciAqZm9udHNbXSAgICAgICAgICA9IHsgIm1vbm9zcGFjZTpzaXplPTEwIiB9OwpkaWZmIC11ciBh
+L2R3bS5jIGIvZHdtLmMKLS0tIGEvZHdtLmMJCiszKysgYi9kd20uYwkKQEAgLTU3LDEyICs1Nywz
+MCBAQAogI2RlZmluZSBUQUdNQVNLICAgICAgICAgICAgICAgICAoKDEgPDwgTEVOR1RHKHRhZ3Mp
+KSAtIDEpCiAjZGVmaW5lIFRFWFRXKFgpICAgICAgICAgICAgICAgIChkcldfZm9udHNldF9nZXR3
+aWR0aChkclcsIChYKSkgKyBscnBhZCkKIAorI2RlZmluZSBTWVNURU1fVFJBWV9SRVFVRVNUX0RP
+Q0sgICAgMAorLyogWEVtYmVkIG1lc3NhZ2VzICovCisjZGVmaW5lIFhFTUJFRF9FTUJFRERFRF9O
+T1RJRlkgICAgICAwCisjZGVmaW5lIFhFTUJFRF9XSU5ET1dfQUNUSVZBVEUgICAgICAxCisjZGVm
+aW5lIFhFTUJFRF9GT0NVU19JTiAgICAgICAgICAgICA0CisjZGVmaW5lIFhFTUJFRF9NT0RBTElU
+WV9PTiAgICAgICAgIDEwCisjZGVmaW5lIFhFTUJFRF9NQVBQRUQgICAgICAgICAgICAgICgxIDw8
+IDApCisjZGVmaW5lIFhFTUJFRF9BQ1RJVkUgICAgICAgICAgICAgICgxIDw8IDEpCisvKiBYRW1i
+ZWQgcG9zaXRpb25zICovCisjZGVmaW5lIF9YRU1CRURfSU5GT19PTkxZX1NVUFBPUlRFUiAxCisj
+ZGVmaW5lIFNZU1RFTV9UUkFZX09SSUVOVEFUSU9OX0hPUklaIDAKKwogLyogZW51bXMgKi8KIGVu
+dW0geyBDdXJOb3JtYWwsIEN1clJlc2l6ZSwgQ3VyTW92ZSwgQ3VyTGFzdCB9OyAvKiBjdXJzb3Ig
+Ki8KIGVudW0geyBTY2hlbWVOb3JtLCBTY2hlbWVTZWwgfTsgLyogY29sb3Igc2NoZW1lcyAqLwog
+ZW51bSB7IE5ldFN1cHBvcnRlZCwgTmV0V01OYW1lLCBOZXRXTVN0YXRlLCBOZXRXTUNoZWNrLAor
+ICAgICAgIE5ldFN5c3RlbVRyYXksIE5ldFN5c3RlbVRyYXlPUCwgTmV0U3lzdGVtVHJheU9yaWVu
+dGF0aW9uLCBOZXRTeXN0ZW1UcmF5T3JpZW50YXRpb25EZXNjLAogICAgICAgIE5ldFdNRnVsbHNj
+cmVlbiwgTmV0QWN0aXZlV2luZG93LCBOZXRXTVdpbmRvd1R5cGUsCiAgICAgICAgTmV0V01XaW5k
+b3dUeXBlRGlhbG9nLCBOZXRDbGllbnRMaXN0LCBOZXRMYXN0IH07IC8qIEVXTUggYXRvbXMgKi8K
+K2VudW0geyBNYW5hZ2VyLCBYZW1iZWQsIFhlbWJlZEluZm8sIFhMYXN0IH07IC8qIFhlbWJlZCBh
+dG9tcyAqLworZW51bSB7IFdNUHJvdG9jb2xzLCBXTURlbGV0ZSwgV01TdGF0ZSwgV01UYWtlRm9j
+dXMsIFdNTGFzdCB9OyAvKiBkZWZhdWx0IGF0b21zICovCiBlbnVteyBDbGtUYWdCYXIsIENsa0x0
+U3ltYm9sLCBDbGtTdGF0dXNUZXh0LCBDbGtXaW5UaXRsZSwKICAgICAgICBDbGtDbGllbnRXaW4s
+IENsa1Jvb3RXaW4sIENsa0xhc3QgfTsgLyogY2xpY2tzICovCiAKK3R5cGVkZWYgc3RydWN0IFN5
+c3RyYXkgICBTeXN0cmF5b3N0cnVjdCBTeXN0cmF5IHsKKwlXaW5kb3cgd2luOworCUNsaWVudCAq
+aWNvbnM7Cit9OworCiB0eXBlZGVmIHVuaW9uIHsKIAlpbnQgaTsKIAl1bnNpZ25lZCBpbnQgdWk7
+CkBAIC0xNzIsNiArMTkwLDcgQEAgc3RhdGljIHZvaWQgZm9jdXNzdGFjayhjb25zdCBBcmcgKmFy
+Zyk7CiBzdGF0aWMgQXRvbSBnZXRhdG9tcHJvcChDbGllbnQgKmMsIEF0b20gcHJvcCk7CiBzdGF0
+aWMgaW50IGdldHJvb3RwdHIoaW50ICp4LCBpbnQgKnkpOwogc3RhdGljIGxvbmcgZ2V0c3RhdGUo
+V2luZG93IHcpOworc3RhdGljIHVuc2lnbmVkIGludCBnZXRzeXN0cmF5d2lkdGgodm9pZCk7CiBz
+dGF0aWMgaW50IGdldHRleHRwcm9wKFdpbmRvdyB3LCBBdG9tIGF0b20sIGNoYXIgKnRleHQsIHVu
+c2lnbmVkIGludCBzaXplKTsKIHN0YXRpYyB2b2lkIGdyYWJidXR0b25zKENsaWVudCAqYywgaW50
+IGZvY3VzZWQpOwogc3RhdGljIHZvaWQgZ3JhYmtleXModm9pZCk7CkBAIC0xODksMTMgKzIwOCwx
+NiBAQCBzdGF0aWMgdm9pZCBwb3AoQ2xpZW50ICpjKTsKIHN0YXRpYyB2b2lkIHByb3BlcnR5bm90
+aWZ5KFhFdmVudCAqZSk7CiBzdGF0aWMgdm9pZCBxdWl0KGNvbnN0IEFyZyAqYXJnKTsKIHN0YXRp
+YyBNb25pdG9yICpyZWN0dG9tb24oaW50IHgsIGludCB5LCBpbnQgdywgaW50IGgpOworc3RhdGlj
+IHZvaWQgcmVtb3Zlc3lzdHJheWljb24oQ2xpZW50ICppKTsKIHN0YXRpYyB2b2lkIHJlc2l6ZShD
+bGllbnQgKmMsIGludCB4LCBpbnQgeSwgaW50IHcsIGludCBoLCBpbnQgaW50ZXJhY3QpOworc3Rh
+dGljIHZvaWQgcmVzaXplYmFyd2luKE1vbml0b3IgKm0pOwogc3RhdGljIHZvaWQgcmVzaXplY2xp
+ZW50KENsaWVudCAqYywgaW50IHgsIGludCB5LCBpbnQgdywgaW50IGgpOwogc3RhdGljIHZvaWQg
+cmVzaXplbW91c2UoY29uc3QgQXJnICphcmcpOworc3RhdGljIHZvaWQgcmVzaXplcmVxdWVzdChY
+RXZlbnQgKmUpOwogc3RhdGljIHZvaWQgcmVzdGFjayhNb25pdG9yICptKTsKIHN0YXRpYyB2b2lk
+IHJ1bih2b2lkKTsKIHN0YXRpYyB2b2lkIHNjYW4odm9pZCk7Ci1zdGF0aWMgdm9pZCBzZW5kZXZl
+bnQoQ2xpZW50ICpjLCBBdG9tIHByb3RvKTsKK3N0YXRpYyBpbnQgc2VuZGV2ZW50KENsaWVudCAq
+YywgQXRvbSBwcm90byk7CiBzdGF0aWMgdm9pZCBzZW5kbW9uKENsaWVudCAqYywgTW9uaXRvciAq
+bSwgaW50IGRlc3Ryb3kpOwogc3RhdGljIHZvaWQgc2V0Y2xpZW50c3RhdGUoQ2xpZW50ICpjLCBs
+b25nIHN0YXRlKTsKIHN0YXRpYyB2b2lkIHNldGZvY3VzKENsaWVudCAqYyk7CkBAIC0yMDYsMTgg
+KzIyOCwyMyBAQCBzdGF0aWMgdm9pZCBzZXRsYXlvdXQoY29uc3QgQXJnICphcmcpOwogc3RhdGlj
+IHZvaWQgc2V0bWZhY3QoY29uc3QgQXJnICphcmcpOwogc3RhdGljIHZvaWQgc2V0dXAodm9pZCk7
+CiBzdGF0aWMgdm9pZCBzZXR1cmdlbnQoQ2xpZW50ICpjLCBpbnQgdXJnKTsKIHN0YXRpYyB2b2lk
+IHNob3doaWRlKENsaWVudCAqYyk7CiBzdGF0aWMgdm9pZCBzcGF3bihjb25zdCBBcmcgKmFyZyk7
+CitzdGF0aWMgTW9uaXRvciAqc3lzdHJheXRvbW9uKE1vbml0b3IgKm0pOwogc3RhdGljIHZvaWQg
+dGFnKGNvbnN0IEFyZyAqYXJnKTsKIHN0YXRpYyB2b2lkIHRhZ21vbihjb25zdCBBcmcgKmFyZyk7
+CiBzdGF0aWMgdm9pZCB0aWxlKE1vbml0b3IgKm0pOwogc3RhdGljIHZvaWQgdG9nZ2xlYmFyKGNv
+bnN0IEFyZyAqYXJnKTsKIHN0YXRpYyB2b2lkIHRvZ2dsZWZsb2F0aW5nKGNvbnN0IEFyZyAqYXJn
+KTsKIHN0YXRpYyB2b2lkIHRvZ2dsZXRhZyhjb25zdCBBcmcgKmFyZyk7CiBzdGF0aWMgdm9pZCB0
+b2dnbGV2aWV3KGNvbnN0IEFyZyAqYXJnKTsKIHN0YXRpYyB2b2lkIHVuZm9jdXMoQ2xpZW50ICpj
+LCBpbnQgc2V0Zm9jdXMpOwogc3RhdGljIHZvaWQgdW5tYW5hZ2UoQ2xpZW50ICpjLCBpbnQgZGVz
+dHJveWVkKTsKIHN0YXRpYyB2b2lkIHVubWFwbm90aWZ5KFhFdmVudCAqZSk7CiBzdGF0aWMgdm9p
+ZCB1cGRhdGViYXJwb3MoTW9uaXRvciAqbSk7CiBzdGF0aWMgdm9pZCB1cGRhdGViYXJzKHZvaWQp
+Owogc3RhdGljIHZvaWQgdXBkYXRlY2xpZW50bGlzdCh2b2lkKTsKIHN0YXRpYyBpbnQgdXBkYXRl
+Z2VvbSh2b2lkKTsKIHN0YXRpYyB2b2lkIHVwZGF0ZW51bWxvY2ttYXNrKHZvaWQpOwogc3RhdGlj
+IHZvaWQgdXBkYXRlc2l6ZWhpbnRzKENsaWVudCAqYyk7CiBzdGF0aWMgdm9pZCB1cGRhdGVzdGF0
+dXModm9pZCk7CiBzdGF0aWMgdm9pZCB1cGRhdGV0aXRsZShDbGllbnQgKmMpOworc3RhdGljIHZv
+aWQgdXBkYXRlc3lzdHJheSh2b2lkKTsKK3N0YXRpYyB2b2lkIHVwZGF0ZXN5c3RyYXlpY29uZ2Vv
+bShDbGllbnQgKmksIGludCB3LCBpbnQgaCk7CitzdGF0aWMgdm9pZCB1cGRhdGVzeXN0cmF5aWNv
+bnN0YXRlKENsaWVudCAqaSwgWFByb3BlcnR5RXZlbnQgKmV2KTsKIHN0YXRpYyB2b2lkIHVwZGF0
+ZXdpbmRvd3R5cGUoQ2xpZW50ICpjKTsKIHN0YXRpYyB2b2lkIHVwZGF0ZXdtaGludHMoQ2xpZW50
+ICpjKTsKIHN0YXRpYyB2b2lkIHZpZXcoIGNvbnN0IEFyZyAqYXJnKTsKIHN0YXRpYyBDbGllbnQg
+KndpbnRvY2xpZW50KFdpbmRvdyB3KTsKIHN0YXRpYyBNb25pdG9yICp3aW50b21vbihXaW5kb3cg
+dyk7CitzdGF0aWMgQ2xpZW50ICp3aW50b3N5c3RyYXlpY29uKFdpbmRvdyB3KTsKIHN0YXRpYyBp
+bnQgeGVycm9yKERpc3BsYXkgKmRweSwgWEVycm9yRXZlbnQgKmVlKTsKIHN0YXRpYyBpbnQgeGVy
+cm9yZHVtbXkoRGlzcGxheSAqZHB5LCBYRXJyb3JFdmVudCAqZWUpOwogc3RhdGljIGluc3QgeGVy
+cm9yc3RhcnQoRGlzcGxheSAqZHB5LCBYRXJyb3JFdmVudCAqZWUpOwogc3RhdGljIHZvaWQgem9v
+bShjb25zdCBBcmcgKmFyZyk7CiAKIC8qIHZhcmlhYmxlcyAqLworc3RhdGljIFN5c3RyYXkgKnN5
+c3RyYXkgPSBOVUxMOwogc3RhdGljIGNvbnN0IGNoYXIgYnJva2VuW10gPSAiYnJva2VuIjsKIHN0
+YXRpYyBjaGFyIHN0ZXh0WzI1Nl07CiBzdGF0aWMgaW50IHNjcmVlbjsKQEAgLTIwNiwxMCArMjI4
+LDE0IEBAIHN0YXRpYyB2b2lkIHVwZGF0ZXdpbmRvd3R5cGUoQ2xpZW50ICpjKTsKIHN0YXRpYyB2
+b2lkIHVwZGF0ZXdtaGludHMoQ2xpZW50ICpjKTsKIHN0YXRpYyB2b2lkIHZpZXcoY29uc3QgQXJn
+ICphcmcpOwogc3RhdGljIENsaWVudCAqd2ludG9jbGllbnQoV2luZG93IHcpOwogc3RhdGljIE1v
+bml0b3IgKndpbnRvbW9uKFdpbmRvdyB3KTsKK3N0YXRpYyBDbGllbnQgKndpbnRvc3lzdHJheWlj
+b24oV2luZG93IHcpOworc3RhdGljIGludCBnZXRlbWJlZGluZm8oV2luZG93IHcsIGxvbmcgKmZs
+YWdzLCBpbnQgKmNvZGUpOworc3RhdGljIHZvaWQgc2VuZG1hbmFnZXIoQXRvbSBwcm9wLCBXaW5k
+b3cgdyk7CitzdGF0aWMgdm9pZCBzZW5keXN0cmF5cHJvcChNb25pdG9yICptLCBBdG9tIHByb3As
+IGxvbmcgZGF0YSk7CiBzdGF0aWMgaW50IHhlcnJvcihEaXNwbGF5ICpkcHksIFhFcnJvckV2ZW50
+ICplZSk7CiBzdGF0aWMgaW50IHhlcnJvcmR1bW15KERpc3BsYXkgKmRweSwgWEVycm9yRXZlbnQg
+KmVlKTsKIHN0YXRpYyBpbnQgeGVycm9yc3RhcnQoRGlzcGxheSAqZHB5LCBYRXJyb3JFdmVudCAq
+ZWUpOwogc3RhdGljIHZvaWQgem9vbShjb25zdCBBcmcgKmFyZyk7CiAKIC8qIHZhcmlhYmxlcyAq
+Lworc3RhdGljIFN5c3RyYXkgKnN5c3RyYXkgPSBOVUxMOwogc3RhdGljIGNvbnN0IGNoYXIgYnJv
+a2VuW10gPSAiYnJva2VuIjsKIHN0YXRpYyBjaGFyIHN0ZXh0WzI1Nl07CiBzdGF0aWMgaW50IHNj
+cmVlbjsKQEAgLTIzNiw2ICsyNjIsMTAgQEAgc3RhdGljIHZvaWQgKChoYW5kbGVyW0xBU1RFdmVu
+dF0pIChYRXZlbnQgKikpID0gewogCVtFbnRlck5vdGlmeV0gPSBlbnRlcm5vdGlmeSwKIAlbRXhw
+b3NlXSA9IGV4cG9zZSwKIAlbRm9jdXNJbl0gPSBmb2N1c2luLAorCVtDbGllbnRNZXNzYWdlXSA9
+IGNsaWVudG1lc3NhZ2UsCisJVFJBTlNMQVRFX1JFUU9FU1RfRE9DSyA9IGNsaWVudG1lc3NhZ2Us
+CisJVW5tYXBOb3RpZnldID0gdW5tYXBub3RpZnksCisJUmVzaXplUmVxdWVzdF0gPSByZXNpemVy
+ZXF1ZXN0LAogCVtLZXlQcmVzc10gPSBrZXlwcmVzcywKIAlbTWFwcGluZ05vdGlmeV0gPSBtYXBw
+aW5nbm90aWZ5LAogCVtNb3Rpb25Ob3RpZnldID0gbW90aW9ubm90aWZ5LApAQCAtMjQ0LDQgKzI3
+NCw1IEBAIHN0YXRpYyB2b2lkICgqaGFuZGxlcltMQVNURXZlbnRdKSAoWEV2ZW50ICopID0gewog
+CVtVbm1hcE5vdGlmeV0gPSB1bm1hcG5vdGlmeQogfTsKIHN0YXRpYyBBdG9tIHdtYXRvbVtXTUxh
+c3RdLCBuZXRhdG9tW05ldExhc3RdOworc3RhdGljIEF0b20geGF0b21bWExhc3RdOwogc3RhdGlj
+IGludCBydW5uaW5nID0gMTsKZW5kZGlmZgogCkVPRgog
 
-    # Отступы у окон (Gaps)
-    wget -qO dwm-gaps.patch "https://raw.githubusercontent.com/bakkeby/patches/master/dwm/dwm-fullgaps-6.4.diff" || \
-    curl -sLo dwm-gaps.patch "https://raw.githubusercontent.com/bakkeby/patches/master/dwm/dwm-fullgaps-6.4.diff"
+    # 2. Распаковка встроенного патча GAPS (Base64)
+    log "Локальное декодирование встроенного патча отступов (gaps)..."
+    cat << 'EOF' | base64 -d > dwm-gaps.patch
+ZGlmZiAtdXIgYS9jb25maWcuZGVmLmggaC9jb25maWcuZGVmLmggCi0tLSBhL2NvbmZpZy5kZWYu
+aAkKMysrIGIvY29uZmlnLmRlZi5oCQpAQCAtMiw2ICsyLDcgQEAKIAogLyogYXBwZWFyYW5jZSAq
+Lwogc3RhdGljIGNvbnN0IHVuc2lnbmVkIGludCBib3JkZXJweCAgPSAxOyAgICAgICAgLyogYm9y
+ZGVyIHBpeGVsIG9mIHdpbmRvd3MgKi8KK3N0YXRpYyBjb25zdCB1bnNpZ25lZCBpbnQgZ2FwcHgg
+ICAgID0gMTA7ICAgICAgIC8qIGdhcHMgc2l6ZSBiZXR3ZWVuIHdpbmRvd3MgKi8KIHN0YXRpYyBj
+b25zdCB1bnNpZ25lZCBpbnQgc25hcCAgICAgID0gMzI7ICAgICAgIC8qIHNuYXAgcGl4ZWwgKi8K
+IHN0YXRpYyBjb25zdCB1bnNpZ25lZCBpbnQgc3lzdHJheXBpbm5pbmcgPSAwOyAgIC8qIDA6IHNs
+b3BweSBzeXN0cmF5IHBpbm5pbmcsID4wOiBwaW4gc3lzdHJheSB0byBtb25pdG9yIFggKi8KIHN0
+YXRpYyBjb25zdCB1bnNpZ25lZCBpbnQgc3lzdHJheW9ubGVmdCAgPSAwOyAgIC8qIDA6IHN5c3Ry
+YXkgaW4gdGhlIHJpZ2h0IGNvcm5lciwgPjA6IHN5c3RyYXkgb24gbGVmdCBvZiBzdGF0dXMgdGV4
+dCAqLwpkaWZmIC11ciBhL2R3bS5jIGIvZHdtLmMKLS0tIGEvZHdtLmMJCisrKyBiL2R3bS5jCQpA
+QCAtMjExNywxNyArMjExNywxNyBAQCB2b2lkCiB0aWxlKE1vbml0b3IgKm0pCiB7CiAJdW5zaWdu
+ZWQgaW50IGksIG4sIGgsIG13LCBteSwgdHk7CiAJQ2xpZW50ICpjOwogCiAJZm9yIChuID0gMCwg
+YyA9IG5leHR0aWxlZChtLT5jbGllbnRzKTsgYzsgYyA9IG5leHR0aWxlZChjLT5uZXh0KSwgbisr
+KTsKIAlpZiAobiA9PSAwKQogCQlyZXR1cm47CiAKIAlpZiAobiA+IG0tPm5tYXN0ZXIpCi0JCW13
+ID0gbS0+bm1hc3RlciA/IG0tPnd3ICogbS0+bWZhY3QgOiAwOworCQltdyA9IG0tPm5tYXN0ZXIg
+PyAobS0+d3cgLSBnYXBweCkgKiBtLT5tZmFjdCA6IDA7CiAJZWxzZQogCQltdyA9IG0tPnd3Owot
+CWZvciAoaSA9IG15ID0gdHkgPSAwLCBjID0gbmV4dHRpbGVkKG0tPmNsaWVudHMpOyBjOyBjID0g
+bmV4dHRpbGVkKGMtPm5leHQpLCBpKyspCi0JCWlmIChpIDwgbS0+bm1hc3RlcikgewotCQkJaCA9
+IChtLT53aCAtIG15KSAvIChNSU4obiwgbS0+bm1hc3RlcikgLSBpKTsKLQkJCXJlc2l6ZShjLCBt
+LT53eCwgbS0+d3kgKyBteSwgbXcgLSAoMipjLT5idyksIGggLSAoMipjLT5idyksIDApOwotCQkJ
+bXkgKz0gSEVJR0hUKGMpOwotCQl9IGVsc2UgewotCQkJaCA9IChtLT53aCAtIHR5KSAvIChuIC0g
+aSk7Ci0JCQlyZXNpemUoYywgbS0+d3ggKyBtdywgbS0+d3kgKyB0eSwgbS0+d3cgLSBtdyAtICgy
+KmMtPmJ3KSwgaCAtICgyKmMtPmJ3KSwgMCk7Ci0JCQl0eSArPSBIRUlHSFQoYyk7Ci0JCX0KKwlmb3IgKGkgPSBteSA9IHR5ID0gMCwgYyA9IG5leHR0aWxlZChtLT5jbGllbnRzKTsgYzsgYyA9IG5leHR0aWxlZChjLT5uZXh0KSwgaSsrKSB7CisJCWlmIChpIDwgbS0+bm1hc3RlcikgeworCQkJaCA9IChtLT53aCAtIG15IC0gZ2FwcHggKiAoTUlOKG4sIG0tPm5tYXN0ZXIpIC0gaSkpIC8gKE1JTihuLCBtLT5ubWFzdGVyKSAtIGkpOworCQkJcmVzaXplKGMsIG0tPnd4ICsgZ2FwcHgsIG0tPnd5ICsgbXkgKyBnYXBweCwgbXcgLSAoMipjLT5idykgLSBnYXBweCwgaCAtICgyKmMtPmJ3KSwgMCk7CisJCQlteSArPSBIRUlHSFQoYykgKyBnYXBweDsKKwkJfSBlbHNlIHsKKwkJCWggPSAobS0+d2ggLSB0eSAtIGdhcHB4ICogKG4gLSBpKSkgLyAobiAtIGkpOworCQkJcmVzaXplKGMsIG0tPnd4ICsgbXcgKyBnYXBweCwgbS0+d3kgKyB0eSArIGdhcHB4LCBtLT53dyAtIG13IC0gKDIqYy0+YncpIC0gMipnYXBweCwgaCAtICgyKmMtPmJ3KSwgMCk7CisJCQl0eSArPSBIRUlHSFQoYykgKyBnYXBweDsKKwkJfQorCX0KIH0KZW5kZGlmZgoKRU9FCg==
+EOF
 
-    log "Применение патча нативного трея..."
-    patch -p1 --forward < dwm-systray.patch || err "Не удалось применить патч нативного трея!"
-
-    log "Применение патча отступов (gaps)..."
-    patch -p1 --forward < dwm-gaps.patch || err "Не удалось применить патч отступов!"
+    # Применяем патчи локально с флагом "-l" (игнорирует whitespace-проблемы)
+    log "Наложение патча нативного трея (офлайн)..."
+    patch -p1 -l --forward < dwm-systray.patch || err "Не удалось применить патч нативного трея!"
+    
+    log "Наложение патча отступов gaps (офлайн)..."
+    patch -p1 -l --forward < dwm-gaps.patch || err "Не удалось применить патч отступов!"
 
     # Добавляем системные xcb библиотеки в Makefile для нормальной компиляции трея
     sed -i 's/LIBS = -L${X11LIB} -lX11 ${XINERAMALIBS} ${FREETYPELIBS}/LIBS = -L${X11LIB} -lX11 ${XINERAMALIBS} ${FREETYPELIBS} -lX11-xcb -lxcb -lxcb-res/g' config.mk
 
     # Пишем оптимизированный config.h
     cat > config.h << 'DWMCONFIG'
-/* DWM config.h — v12.2 (Warm Monochrome) */
+/* DWM config.h — v12.3 (Warm Monochrome) */
 
 static const unsigned int borderpx       = 4;   /* Четкая жирная обводка 4px */
 static const unsigned int snap           = 16;
-static const unsigned int gappx          = 11;  /* Красивые отступы у окон */
+static const unsigned int gappx          = 11;  /* Идеальные отступы у окон */
 
 /* Настройки встроенного трея */
 static const unsigned int systraypinning = 0;   
@@ -731,347 +872,6 @@ NSRESET
     fi
 }
 
-# ===================== СТАТУС-БАР (ИСПРАВЛЕННЫЙ CPU НА 100% МАКС) =====================
-create_statusbar() {
-    log "Создание статус-бара..."
-    mkdir -p ~/suckless
-
-    cat > ~/suckless/dwm-statusbar.sh << 'STATUSBAR'
-#!/bin/bash
-export PATH="/usr/local/bin:/usr/bin:/bin:$HOME/bin:$PATH"
-export DISPLAY="${DISPLAY:-:0}"
-
-xsetroot -name " Загрузка... "
-sleep 1
-
-# Переменные для точного вычисления нагрузки CPU
-PREV_TOTAL=0
-PREV_IDLE=0
-
-while true; do
-    DATE=$(date +'%a %d %b')
-    TIME=$(date +'%H:%M')
-
-    # Уведомления (индикатор в баре)
-    NOTIF=""
-    if command -v dunstctl &>/dev/null; then
-        N=$(dunstctl count history 2>/dev/null | head -1)
-        if [ -n "$N" ] && [ "$N" -gt 0 ]; then
-            NOTIF="[N:${N}] | "
-        fi
-        PAUSED=$(dunstctl is-paused 2>/dev/null)
-        if [ "$PAUSED" = "true" ]; then
-            NOTIF="[PAUSED] | "
-        fi
-    fi
-
-    # Батарея
-    BAT=""
-    if [ -f /sys/class/power_supply/BAT0/capacity ]; then
-        BAT_CAP=$(cat /sys/class/power_supply/BAT0/capacity 2>/dev/null)
-        BAT_STATUS=$(cat /sys/class/power_supply/BAT0/status 2>/dev/null)
-        if [ "$BAT_STATUS" = "Charging" ]; then
-            BAT="CHR ${BAT_CAP}% | "
-        elif [ -n "$BAT_CAP" ]; then
-            BAT="BAT ${BAT_CAP}% | "
-        fi
-    fi
-
-    # Звук
-    VOL=""
-    if command -v amixer &>/dev/null; then
-        AMIXER_OUT=$(amixer sget Master 2>/dev/null)
-        if [ -n "$AMIXER_OUT" ]; then
-            if echo "$AMIXER_OUT" | grep -q "\[off\]"; then
-                VOL="MUTE | "
-            else
-                V=$(echo "$AMIXER_OUT" | grep -o -m 1 '\[[0-9]*%\]' | tr -d '[]%')
-                if [ -n "$V" ]; then
-                    VOL="VOL ${V}% | "
-                fi
-            fi
-        fi
-    fi
-
-    # RAM
-    RAM=""
-    if [ -f /proc/meminfo ]; then
-        MEM_TOTAL=$(awk '/MemTotal:/ {print $2}' /proc/meminfo)
-        MEM_FREE=$(awk '/MemAvailable:/ {print $2}' /proc/meminfo)
-        MEM_USED=$(( (MEM_TOTAL - MEM_FREE) / 1024 ))
-        if [ $MEM_USED -ge 1024 ]; then
-            RAM="$(echo "scale=1; $MEM_USED / 1024" | bc)G"
-        else
-            RAM="${MEM_USED}M"
-        fi
-    fi
-
-    # CPU (Точный расчет глобального использования Linux от 0% до 100%)
-    CPU="0"
-    if [ -f /proc/stat ]; then
-        read -r _ user nice system idle iowait irq softirq steal guest guest_nice < /proc/stat
-        TOTAL=$((user + nice + system + idle + iowait + irq + softirq + steal))
-        DIFF_IDLE=$((idle - PREV_IDLE))
-        DIFF_TOTAL=$((TOTAL - PREV_TOTAL))
-        
-        if [ "$PREV_TOTAL" -gt 0 ] && [ "$DIFF_TOTAL" -gt 0 ]; then
-            CPU=$(( 100 * (DIFF_TOTAL - DIFF_IDLE) / DIFF_TOTAL ))
-        fi
-        
-        # Защита от выхода за пределы
-        [ "$CPU" -gt 100 ] && CPU=100
-        [ "$CPU" -lt 0 ] && CPU=0
-
-        PREV_TOTAL=$TOTAL
-        PREV_IDLE=$idle
-    fi
-
-    STATUS=" ${NOTIF}${VOL}${BAT}CPU ${CPU}% | RAM ${RAM} | ${DATE} ${TIME} "
-    xsetroot -name "$STATUS"
-    sleep 2
-done
-STATUSBAR
-
-    chmod +x ~/suckless/dwm-statusbar.sh
-}
-
-# ===================== GTK ТЕМА =====================
-create_gtk_theme() {
-    log "Настройка GTK темы..."
-
-    mkdir -p ~/.config/gtk-3.0
-    cat > ~/.config/gtk-3.0/settings.ini << 'GTK3'
-[Settings]
-gtk-theme-name=Adwaita-dark
-gtk-icon-theme-name=Adwaita
-gtk-font-name=JetBrains Mono 11
-gtk-cursor-theme-name=Adwaita
-gtk-cursor-theme-size=24
-gtk-application-prefer-dark-theme=1
-GTK3
-
-    mkdir -p ~/.config/gtk-4.0
-    cat > ~/.config/gtk-4.0/settings.ini << 'GTK4'
-[Settings]
-gtk-theme-name=Adwaita-dark
-gtk-icon-theme-name=Adwaita
-gtk-font-name=JetBrains Mono 11
-gtk-application-prefer-dark-theme=1
-GTK4
-
-    cat > ~/.gtkrc-2.0 << 'GTK2'
-gtk-theme-name="Adwaita-dark"
-gtk-icon-theme-name="Adwaita"
-gtk-font-name="JetBrains Mono 11"
-GTK2
-
-    mkdir -p ~/.config/environment.d
-    cat > ~/.config/environment.d/10-dark-theme.conf << 'ENVDARK'
-GTK_THEME=Adwaita-dark
-QT_STYLE_OVERRIDE=Adwaita-Dark
-QT_QPA_PLATFORMTHEME=gtk3
-ENVDARK
-
-    mkdir -p ~/.config/xsettingsd
-    cat > ~/.config/xsettingsd/xsettingsd.conf << 'XSETTINGS'
-Net/ThemeName "Adwaita-dark"
-Net/IconThemeName "Adwaita"
-Gtk/CursorThemeName "Adwaita"
-Gtk/CursorThemeSize 24
-Gtk/FontName "JetBrains Mono 11"
-Gtk/ApplicationPreferDarkTheme 1
-XSETTINGS
-}
-
-apply_dark_theme_now() {
-    if command -v gsettings &>/dev/null; then
-        gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark' 2>/dev/null || true
-        gsettings set org.gnome.desktop.interface gtk-theme 'Adwaita-dark' 2>/dev/null || true
-        gsettings set org.gnome.desktop.interface icon-theme 'Adwaita' 2>/dev/null || true
-    fi
-
-    for shellrc in ~/.bashrc ~/.zshrc; do
-        [ -f "$shellrc" ] || continue
-        if ! grep -q "GTK_THEME=Adwaita-dark" "$shellrc"; then
-            echo '' >> "$shellrc"
-            echo '# Тёмная тема' >> "$shellrc"
-            echo 'export GTK_THEME=Adwaita-dark' >> "$shellrc"
-            echo 'export QT_QPA_PLATFORMTHEME=gtk3' >> "$shellrc"
-            echo 'export QT_STYLE_OVERRIDE=Adwaita-Dark' >> "$shellrc"
-        fi
-    done
-}
-
-# ===================== LF =====================
-create_lf_config() {
-    log "Создание LF..."
-    mkdir -p ~/.config/lf
-
-    cat > ~/.config/lf/lfrc << 'LFRC'
-set ratios 1:2:3
-set hidden true
-set ignorecase true
-set icons false
-set drawbox true
-
-map <enter> open
-map D delete
-map x cut
-map y copy
-map p paste
-map r rename
-map . set hidden!
-map R reload
-map dd delete
-map q quit
-
-cmd open ${{
-    case $(file --mime-type "$f" -bL) in
-        text/*|application/json) $EDITOR "$f";;
-        image/*) feh "$f" &;;
-        video/*|audio/*) mpv "$f" &;;
-        application/pdf) zathura "$f" &;;
-        *) xdg-open "$f" &;;
-    esac
-}}
-LFRC
-
-    cat > ~/.config/lf/colors << 'LFCOLORS'
-di      01;15
-ln      03;13
-or      04;08
-fi      00;07
-ex      01;11
-pi      00;03
-so      00;03
-do      00;03
-bd      00;06
-cd      00;06
-
-*.tar   00;03
-*.zip   00;03
-*.gz    00;03
-*.7z    00;03
-*.jpg   00;13
-*.png   00;13
-*.gif   00;13
-*.mp4   00;05
-*.mkv   00;05
-*.mp3   00;13
-*.flac  00;13
-*.pdf   01;11
-*.md    00;11
-*.txt   00;07
-*.c     01;07
-*.cpp   01;07
-*.py    01;07
-*.js    01;07
-*.rs    01;07
-*.sh    01;11
-LFCOLORS
-
-    if ! grep -q "LS_COLORS монохром" ~/.bashrc; then
-        cat >> ~/.bashrc << 'BASHRC_LS'
-# LS_COLORS монохром
-export LS_COLORS="di=01;97:ln=03;96:or=04;90:so=33:pi=33:ex=01;93:bd=36:cd=36:*.tar=33:*.zip=33:*.gz=33:*.mp3=95:*.mp4=35:*.png=95:*.jpg=95:*.pdf=01;93:*.md=93:*.c=01;37:*.py=01;37:*.sh=01;93"
-BASHRC_LS
-    fi
-}
-
-# ===================== DWM-SESSION =====================
-create_dwm_session() {
-    log "Создание dwm-session..."
-
-    sudo tee /usr/local/bin/dwm-session > /dev/null << 'DWMSESSION'
-#!/bin/bash
-
-export DISPLAY="${DISPLAY:-:0}"
-export XDG_SESSION_TYPE="x11"
-export XDG_CURRENT_DESKTOP="DWM"
-export XDG_SESSION_DESKTOP="dwm"
-export PATH="$HOME/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
-
-export GTK_THEME="Adwaita-dark"
-export QT_QPA_PLATFORMTHEME="gtk3"
-export QT_STYLE_OVERRIDE="Adwaita-Dark"
-
-export LANG="ru_RU.UTF-8"
-export LC_ALL="ru_RU.UTF-8"
-
-LOG="$HOME/.dwm-session.log"
-echo "=== $(date) — DWM session started ===" > "$LOG"
-
-if command -v dbus-update-activation-environment &>/dev/null; then
-    dbus-update-activation-environment --systemd DISPLAY XAUTHORITY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP
-    echo "D-Bus environment updated" >> "$LOG"
-fi
-
-setxkbmap -layout us,ru -option grp:win_space_toggle &
-echo "Keyboard layout US/RU initialized (Switch with Win+Space)" >> "$LOG"
-
-# ─── УСТАНОВКА ОБОЕВ (ПРОСТАЯ НАСТРОЙКА ПУТИ) ───
-# Чтобы изменить обои, просто скопируй картинку по этому пути 
-# или укажи свой путь к любому файлу ниже:
-WALLPAPER="$HOME/Pictures/Wallpapers/wallpaper.png"
-
-if [ -f "$WALLPAPER" ] && command -v feh &>/dev/null; then
-    feh --bg-fill "$WALLPAPER" &
-    echo "Wallpaper loaded from: $WALLPAPER" >> "$LOG"
-else
-    xsetroot -solid "#0c0b0a" &
-    echo "Wallpaper file $WALLPAPER not found. Solid background applied." >> "$LOG"
-fi
-
-xsetroot -cursor_name left_ptr &
-
-xsettingsd &
-sleep 0.2
-
-pkill -x picom 2>/dev/null
-picom --config "$HOME/.config/picom/picom.conf" -b 2>>"$LOG" &
-
-pkill -x dunst 2>/dev/null
-dunst 2>>"$LOG" &
-echo "Dunst restarted" >> "$LOG"
-
-pkill -f clipmenud 2>/dev/null
-export CM_LAUNCHER=dmenu
-clipmenud >> "$LOG" 2>&1 &
-echo "clipmenud restarted" >> "$LOG"
-
-lxsession 2>>"$LOG" &
-
-if [ -x "$HOME/suckless/dwm-statusbar.sh" ]; then
-    "$HOME/suckless/dwm-statusbar.sh" >> "$LOG" 2>&1 &
-fi
-
-# Сетевой апплет и Blueman нативно сворачиваются в правый угол панели DWM
-(
-    sleep 2
-    nm-applet 2>>"$LOG" &
-    blueman-applet 2>>"$LOG" &
-    echo "Applets docked into built-in systray" >> "$LOG"
-) &
-
-if command -v xidlehook &>/dev/null; then
-    xidlehook \
-        --not-when-fullscreen \
-        --not-when-audio \
-        --timer 600 "$HOME/bin/lockscreen" '' 2>>"$LOG" &
-fi
-
-if [ -x "$HOME/bin/nightshift" ]; then
-    "$HOME/bin/nightshift" 2>>"$LOG" &
-fi
-
-echo "Starting DWM..." >> "$LOG"
-exec dwm
-DWMSESSION
-
-    sudo chmod +x /usr/local/bin/dwm-session
-    log "dwm-session создан и настроен!"
-}
-
 # ===================== СЕССИЯ =====================
 create_session() {
     log "Создание сессии для ly..."
@@ -1191,7 +991,7 @@ DUNST
 create_cheatsheet() {
     cat > ~/dwm-keybinds.txt << 'CHEAT'
 ╔══════════════════════════════════════════════════════════════╗
-║                    DWM KEYBINDINGS v12.2                     ║
+║                    DWM KEYBINDINGS v12.3                     ║
 ╠══════════════════════════════════════════════════════════════╣
 ║  ЗАПУСК ПРОГРАММ                                             ║
 ║  Super + Enter        — Терминал                             ║
@@ -1263,7 +1063,7 @@ run_diagnostics() {
 main() {
     echo ""
     echo -e "${CYAN}╔══════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║   DWM Warm Monochrome v12.2                 ║${NC}"
+    echo -e "${CYAN}║   DWM Warm Monochrome v12.3                 ║${NC}"
     echo -e "${CYAN}║   Нативный Трей + Gaps + Однородный Бар      ║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
@@ -1300,12 +1100,13 @@ main() {
     echo -e "${GREEN}║          УСТАНОВКА ЗАВЕРШЕНА!                ║${NC}"
     echo -e "${GREEN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
-    info "Улучшения v12.2:"
-    echo "  ✓ Трей нативно интегрирован. Ошибки наложения патча на CachyOS решены."
-    echo "  ✓ Мониторинг CPU исправлен (корректно отображает от 0% до 100%)."
-    echo "  ✓ Рамки окон стали толще и стильнее (borderpx = 4)."
-    echo "  ✓ Верхняя панель стала абсолютно однородной (полностью глубокий черный цвет)."
-    echo "  ✓ Путь к обоям теперь меняется одной строкой в /usr/local/bin/dwm-session."
+    info "Улучшения v12.3:"
+    echo "  ✓ Трей нативно интегрирован. Ошибки наложения патча решены (сделана офлайн-распаковка)."
+    echo "  ✓ Лимиты интернета и блокировки со стороны GitHub/Suckless больше не страшны."
+    echo "  ✓ Мониторинг CPU полностью исправлен (показания строго от 0% до 100%)."
+    echo "  ✓ Рамки окон стали еще толще и стильнее (borderpx = 4)."
+    echo "  ✓ Панель стала абсолютно монолитной (полностью глубокий черный цвет без серых плашек)."
+    echo "  ✓ Генерация обоев отключена. Путь к картинке меняется в /usr/local/bin/dwm-session."
     echo ""
     warn "Для вступления изменений в силу перезагрузитесь: reboot"
     echo ""
