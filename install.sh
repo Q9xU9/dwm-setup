@@ -1,70 +1,78 @@
 #!/bin/bash
-# install.sh — DWM окружение на CachyOS/Arch
-# Версия 13.1 — Нативный Трей, Gaps, 4px обводка, однородный бар, без CPU и RAM, без папки suckless в ~
+# install-sway.sh — Полноценное Sway окружение на CachyOS/Arch
+# Версия 1.0 — Производительность + Практичность + Стиль
+# 6 тем на выбор (включая монохромную), Waybar, всё для комфорта
 
 set -e
 
 export GIT_TERMINAL_PROMPT=0
-export GIT_ASKPASS=/bin/echo
 
-# ===================== ЦВЕТА =====================
+# ===================== ЦВЕТА ЛОГА =====================
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
+BOLD='\033[1m'
 NC='\033[0m'
 
 log()   { echo -e "${GREEN}[✓]${NC} $1"; }
 warn()  { echo -e "${YELLOW}[!]${NC} $1"; }
 err()   { echo -e "${RED}[✗]${NC} $1"; exit 1; }
 info()  { echo -e "${CYAN}[i]${NC} $1"; }
+title() { echo -e "\n${BOLD}${CYAN}▶ $1${NC}\n"; }
 
-# ===================== 1. ЗАВИСИМОСТИ =====================
+# ===================== 1. ПАКЕТЫ =====================
 install_packages() {
-    log "Обновление системы..."
-    sudo pacman -Syu --noconfirm || warn "Не удалось обновить базы данных пакетов, продолжаем со старыми..."
+    title "Установка базовых пакетов Sway + Wayland"
+    sudo pacman -Syu --noconfirm || warn "Не удалось обновить БД"
 
-    log "Установка базовых пакетов..."
     sudo pacman -S --needed --noconfirm \
-        base-devel git xorg xorg-xinit xorg-xrandr xorg-xsetroot \
-        xf86-input-libinput xorg-xinput \
-        libx11 libxft libxinerama freetype2 fontconfig \
-        picom dunst \
-        xclip xdotool xsel \
-        pavucontrol alsa-utils \
-        noto-fonts noto-fonts-cjk ttf-jetbrains-mono ttf-font-awesome \
-        alacritty lf \
-        gnome-disk-utility \
-        steam \
-        wget curl tar gzip unzip htop \
-        feh scrot brightnessctl \
-        polkit lxsession \
-        networkmanager network-manager-applet \
-        blueman \
-        libnotify \
-        openssh bc \
-        xsettingsd \
-        gnome-themes-extra adwaita-icon-theme \
+        sway swaybg swayidle swaylock \
+        waybar wofi \
+        xorg-xwayland \
+        wl-clipboard cliphist \
+        grim slurp swappy \
+        wlsunset \
+        brightnessctl playerctl \
+        pipewire pipewire-pulse pipewire-alsa wireplumber pavucontrol \
+        alacritty foot \
+        thunar thunar-volman thunar-archive-plugin \
+        file-roller unzip p7zip \
+        polkit-gnome \
+        network-manager-applet networkmanager \
+        blueman bluez bluez-utils \
+        libnotify mako \
+        xdg-desktop-portal xdg-desktop-portal-wlr xdg-desktop-portal-gtk \
+        xdg-user-dirs xdg-utils \
+        qt5-wayland qt6-wayland \
+        gnome-themes-extra adwaita-icon-theme papirus-icon-theme \
         gsettings-desktop-schemas dconf \
-        dbus \
-        clipmenu
+        noto-fonts noto-fonts-cjk noto-fonts-emoji \
+        ttf-jetbrains-mono ttf-jetbrains-mono-nerd \
+        ttf-font-awesome \
+        htop btop neofetch \
+        curl wget git \
+        bc jq socat \
+        imv mpv \
+        zathura zathura-pdf-mupdf \
+        firefox
+        
+    log "Базовые пакеты установлены"
 }
 
 # ===================== 2. YAY =====================
 install_yay() {
+    title "Установка yay"
     if ! command -v yay &>/dev/null; then
-        log "Установка yay..."
         if sudo pacman -S --needed --noconfirm yay 2>/dev/null; then
-            log "yay установлен!"
+            log "yay установлен через pacman"
         else
             cd /tmp
             rm -rf yay-bin
-            if git clone --depth 1 https://aur.archlinux.org/yay-bin.git 2>/dev/null; then
-                cd yay-bin
-                makepkg -si --noconfirm
-                cd ~
-                log "yay-bin установлен!"
-            fi
+            git clone --depth 1 https://aur.archlinux.org/yay-bin.git
+            cd yay-bin
+            makepkg -si --noconfirm
+            cd ~
         fi
     else
         log "yay уже установлен"
@@ -73,434 +81,636 @@ install_yay() {
 
 # ===================== 3. AUR ПАКЕТЫ =====================
 install_aur_packages() {
-    log "Установка AUR пакетов..."
+    title "Установка AUR пакетов"
 
-    info "i3lock-color..."
-    if yay -S --needed --noconfirm i3lock-color 2>/dev/null; then
-        log "i3lock-color установлен!"
-    else
-        warn "Ставим обычный i3lock..."
-        sudo pacman -S --needed --noconfirm i3lock
-    fi
+    info "swaylock-effects (красивая блокировка)..."
+    yay -S --needed --noconfirm swaylock-effects 2>/dev/null || warn "Не установлен"
+
+    info "wlogout (меню выхода)..."
+    yay -S --needed --noconfirm wlogout 2>/dev/null || warn "Не установлен"
 
     info "Zen Browser..."
-    yay -S --needed --noconfirm zen-browser-bin || \
-    yay -S --needed --noconfirm zen-browser || \
-        warn "Zen Browser не найден."
+    yay -S --needed --noconfirm zen-browser-bin 2>/dev/null || warn "Установите вручную"
 
     info "Telegram..."
-    sudo pacman -S --needed --noconfirm telegram-desktop || \
+    sudo pacman -S --needed --noconfirm telegram-desktop 2>/dev/null || \
         yay -S --needed --noconfirm telegram-desktop
+
+    info "Steam..."
+    sudo pacman -S --needed --noconfirm steam 2>/dev/null || warn "Steam не установлен"
 
     info "Proton..."
     yay -S --needed --noconfirm proton-cachyos-bin 2>/dev/null || \
-    yay -S --needed --noconfirm proton-cachyos 2>/dev/null || \
     yay -S --needed --noconfirm proton-ge-custom-bin 2>/dev/null || \
-        warn "Proton не найден, установите через Steam."
+        warn "Установите Proton через Steam"
 
-    info "xidlehook..."
-    yay -S --needed --noconfirm xidlehook 2>/dev/null || \
-        warn "xidlehook не установлен."
+    info "wl-clip-persist (буфер сохраняется после закрытия окна)..."
+    yay -S --needed --noconfirm wl-clip-persist 2>/dev/null || warn "Не установлен"
 }
 
-# ===================== 4. ЗАГРУЗЧИК ПАТЧЕЙ =====================
-download_patch_with_fallback() {
-    local name=$1
-    local out=$2
-    shift 2
-    local urls=("$@")
-    local ua="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-
-    info "Загрузка патча: $name..."
-    for url in "${urls[@]}"; do
-        info "Пробуем источник: $url"
-        rm -f "$out"
-        
-        if curl -sL -A "$ua" --connect-timeout 8 --retry 1 -o "$out" "$url" 2>/dev/null; then
-            if grep -q -E "^(diff|---|\+\+\+)" "$out" 2>/dev/null; then
-                log "Успешно скачан: $name"
-                return 0
-            fi
-        fi
-        
-        if wget -q -U "$ua" --timeout=8 --tries=1 -O "$out" "$url" 2>/dev/null; then
-            if grep -q -E "^(diff|---|\+\+\+)" "$out" 2>/dev/null; then
-                log "Успешно скачан через wget: $name"
-                return 0
-            fi
-        fi
-    done
-    err "Критическая ошибка: Не удалось скачать рабочий патч $name."
-}
-
-# ===================== 5. СБОРКА DWM =====================
-build_dwm() {
-    log "Загрузка официального чистого архива DWM 6.4..."
-    mkdir -p /tmp/suckless-build
-    cd /tmp/suckless-build
-    rm -rf dwm dwm-6.4 dwm-6.4.tar.gz
-
-    wget --timeout=15 -q "https://dl.suckless.org/dwm/dwm-6.4.tar.gz" || \
-    curl -sLo dwm-6.4.tar.gz "https://dl.suckless.org/dwm/dwm-6.4.tar.gz"
-
-    tar -xzf dwm-6.4.tar.gz
-    mv dwm-6.4 dwm
-    rm dwm-6.4.tar.gz
-    cd dwm
-
-    systray_mirrors=(
-        "https://dwm.suckless.org/patches/systray/dwm-systray-6.4.diff"
-        "https://web.archive.org/web/20230528151554/https://dwm.suckless.org/patches/systray/dwm-systray-6.4.diff"
-        "https://cdn.jsdelivr.net/gh/bakkeby/patches@master/dwm/dwm-systray-6.4.diff"
-    )
-
-    gaps_mirrors=(
-        "https://dwm.suckless.org/patches/fullgaps/dwm-fullgaps-6.4.diff"
-        "https://web.archive.org/web/20230528151554/https://dwm.suckless.org/patches/fullgaps/dwm-fullgaps-6.4.diff"
-        "https://cdn.jsdelivr.net/gh/bakkeby/patches@master/dwm/dwm-fullgaps-6.4.diff"
-    )
-
-    download_patch_with_fallback "systray" "dwm-systray.patch" "${systray_mirrors[@]}"
-    download_patch_with_fallback "gaps" "dwm-gaps.patch" "${gaps_mirrors[@]}"
-
-    log "Наложение патча нативного трея..."
-    patch -p1 -l --forward < dwm-systray.patch || err "Не удалось применить патч нативного трея!"
-
-    log "Наложение патча отступов (gaps)..."
-    patch -p1 -l --forward < dwm-gaps.patch || err "Не удалось применить патч отступов!"
-
-    sed -i 's/LIBS = -L${X11LIB} -lX11 ${XINERAMALIBS} ${FREETYPELIBS}/LIBS = -L${X11LIB} -lX11 ${XINERAMALIBS} ${FREETYPELIBS} -lX11-xcb -lxcb -lxcb-res/g' config.mk
-
-    cat > config.h << 'DWMCONFIG'
-/* DWM config.h — v13.1 (Warm Monochrome) */
-
-static const unsigned int borderpx       = 4;   /* Четкая жирная обводка 4px */
-static const unsigned int snap           = 16;
-static const unsigned int gappx          = 11;  /* Идеальные отступы у окон */
-
-/* Настройки встроенного трея */
-static const unsigned int systraypinning = 0;   
-static const unsigned int systrayonleft  = 0;   
-static const unsigned int systrayspacing = 6;   
-static const int systraypinningfailfirst = 1;   
-static const int showsystray             = 1;   
-
-static const int showbar                 = 1;
-static const int topbar                  = 1;
-
-static const char *fonts[]          = {
-    "JetBrains Mono:size=11",
-    "Font Awesome 6 Free:size=11"
-};
-static const char dmenufont[]       = "JetBrains Mono:size=11";
-
-/* Тема: Полностью однородный глубокий черный фон для монолитного бара */
-static const char col_bg[]          = "#0c0b0a";
-static const char col_bg_sel[]      = "#0c0b0a"; 
-static const char col_fg[]          = "#b5ada6"; 
-static const char col_accent[]      = "#f5efe6"; 
-static const char col_border[]      = "#1c1a18"; 
-static const char col_border_sel[]  = "#f5efe6"; 
-
-static const char *colors[][3]      = {
-    [SchemeNorm]   = { col_fg,     col_bg,     col_border     },
-    [SchemeSel]    = { col_accent, col_bg_sel, col_border_sel },
-};
-
-static const char *tags[] = { "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX" };
-
-static const Rule rules[] = {
-    { "Steam",            NULL, NULL, 1 << 3, 1, -1 },
-    { "TelegramDesktop",  NULL, NULL, 1 << 2, 0, -1 },
-    { "telegram-desktop", NULL, NULL, 1 << 2, 0, -1 },
-    { "Gimp",             NULL, NULL, 0,      1, -1 },
-    { "pavucontrol",      NULL, NULL, 0,      1, -1 },
-};
-
-static const float mfact     = 0.55;
-static const int nmaster     = 1;
-static const int resizehints = 0;
-static const int lockfullscreen = 1;
-
-static const Layout layouts[] = {
-    { "[]=", tile },
-    { "><>", NULL },
-    { "[M]", monocle },
-};
-
-#define MODKEY Mod4Mask
-#define TAGKEYS(KEY,TAG) \
-    { MODKEY,                       KEY, view,       {.ui = 1 << TAG} }, \
-    { MODKEY|ControlMask,           KEY, toggleview, {.ui = 1 << TAG} }, \
-    { MODKEY|ShiftMask,             KEY, tag,        {.ui = 1 << TAG} }, \
-    { MODKEY|ControlMask|ShiftMask, KEY, toggletag,  {.ui = 1 << TAG} },
-
-#define SHCMD(cmd) { .v = (const char*[]){ "/bin/sh", "-c", cmd, NULL } }
-
-static char dmenumon[2] = "0";
-static const char *dmenucmd[]    = { "dmenu_run", "-m", dmenumon, "-fn", dmenufont,
-    "-nb", col_bg, "-nf", col_fg, "-sb", col_bg_sel, "-sf", col_accent,
-    "-l", "20", NULL };
-static const char *termcmd[]         = { "alacritty", NULL };
-static const char *browsercmd[]      = { "zen-browser", NULL };
-static const char *filemgrcmd[]      = { "alacritty", "-e", "lf", NULL };
-static const char *telegramcmd[]     = { "sh", "-c", "$HOME/bin/telegram", NULL };
-static const char *steamcmd[]        = { "steam", NULL };
-static const char *screenshot[]      = { "sh", "-c", "$HOME/bin/screenshot", NULL };
-static const char *screenshotfull[]  = { "sh", "-c", "$HOME/bin/screenshot-full", NULL };
-static const char *lockcmd[]         = { "sh", "-c", "$HOME/bin/lockscreen", NULL };
-static const char *clipcmd[]         = { "sh", "-c", "$HOME/bin/clipmenu-picker", NULL };
-static const char *clipclear[]       = { "sh", "-c", "$HOME/bin/clipmenu-clear", NULL };
-static const char *noticmd[]         = { "sh", "-c", "$HOME/bin/notification-center", NULL };
-static const char *notidismiss[]     = { "dunstctl", "close", NULL };
-static const char *notidismissall[]  = { "dunstctl", "close-all", NULL };
-
-static const char *vol_up[]   = { "pactl", "set-sink-volume", "@DEFAULT_SINK@", "+5%", NULL };
-static const char *vol_down[] = { "pactl", "set-sink-volume", "@DEFAULT_SINK@", "-5%", NULL };
-static const char *vol_mute[] = { "pactl", "set-sink-mute",   "@DEFAULT_SINK@", "toggle", NULL };
-static const char *bri_up[]   = { "brightnessctl", "set", "+10%", NULL };
-static const char *bri_down[] = { "brightnessctl", "set", "10%-", NULL };
-
-#include <X11/XF86keysym.h>
-
-static const Key keys[] = {
-    /* ─── Программы ─── */
-    { MODKEY,                       XK_d,      spawn,          {.v = dmenucmd } },
-    { MODKEY,                       XK_Return, spawn,          {.v = termcmd } },
-    { MODKEY,                       XK_w,      spawn,          {.v = browsercmd } },
-    { MODKEY,                       XK_e,      spawn,          {.v = filemgrcmd } },
-    { MODKEY,                       XK_t,      spawn,          {.v = telegramcmd } },
-    { MODKEY|ShiftMask,             XK_s,      spawn,          {.v = steamcmd } },
-    { MODKEY|ShiftMask,             XK_l,      spawn,          {.v = lockcmd } },
-    { 0,                            XK_Print,  spawn,          {.v = screenshot } },
-    { ShiftMask,                    XK_Print,  spawn,          {.v = screenshotfull } },
-
-    /* ─── БУФЕР ОБМЕНА и УВЕДОМЛЕНИЯ ─── */
-    { MODKEY,                       XK_v,      spawn,          {.v = clipcmd } },
-    { MODKEY|ShiftMask,             XK_v,      spawn,          {.v = clipclear } },
-    { MODKEY,                       XK_grave,  spawn,          {.v = noticmd } },
-    { MODKEY,                       XK_x,      spawn,          {.v = notidismiss } },
-    { MODKEY|ShiftMask,             XK_x,      spawn,          {.v = notidismissall } },
-
-    /* ─── Мультимедиа ─── */
-    { 0, XF86XK_AudioRaiseVolume, spawn, {.v = vol_up } },
-    { 0, XF86XK_AudioLowerVolume, spawn, {.v = vol_down } },
-    { 0, XF86XK_AudioMute,       spawn, {.v = vol_mute } },
-    { 0, XF86XK_MonBrightnessUp,   spawn, {.v = bri_up } },
-    { 0, XF86XK_MonBrightnessDown, spawn, {.v = bri_down } },
-
-    /* ─── Окна ─── */
-    { MODKEY,           XK_j,      focusstack,     {.i = +1 } },
-    { MODKEY,           XK_k,      focusstack,     {.i = -1 } },
-    { MODKEY,           XK_h,      setmfact,       {.f = -0.05} },
-    { MODKEY,           XK_l,      setmfact,       {.f = +0.05} },
-    { MODKEY,           XK_i,      incnmaster,     {.i = +1 } },
-    { MODKEY|ShiftMask, XK_i,      incnmaster,     {.i = -1 } },
-    { MODKEY|ShiftMask, XK_Return, zoom,           {0} },
-    { MODKEY,           XK_Tab,    view,           {0} },
-
-    { MODKEY|ShiftMask,             XK_q, killclient, {0} },
-    { MODKEY|ControlMask|ShiftMask, XK_q, quit,       {0} },
-
-    { MODKEY,             XK_semicolon, setlayout, {.v = &layouts[0]} },
-    { MODKEY|ShiftMask,   XK_semicolon, setlayout, {.v = &layouts[1]} },
-    { MODKEY,             XK_m,         setlayout, {.v = &layouts[2]} },
-    { MODKEY,             XK_n,         setlayout, {0} },
-    { MODKEY|ShiftMask,   XK_n,         togglefloating, {0} },
-
-    { MODKEY,           XK_b,      togglebar, {0} },
-
-    { MODKEY,           XK_comma,  focusmon, {.i = -1 } },
-    { MODKEY,           XK_period, focusmon, {.i = +1 } },
-    { MODKEY|ShiftMask, XK_comma,  tagmon,   {.i = -1 } },
-    { MODKEY|ShiftMask, XK_period, tagmon,   {.i = +1 } },
-
-    { MODKEY,           XK_0, view, {.ui = ~0 } },
-    { MODKEY|ShiftMask, XK_0, tag,  {.ui = ~0 } },
-
-    TAGKEYS(XK_1, 0) TAGKEYS(XK_2, 1) TAGKEYS(XK_3, 2)
-    TAGKEYS(XK_4, 3) TAGKEYS(XK_5, 4) TAGKEYS(XK_6, 5)
-    TAGKEYS(XK_7, 6) TAGKEYS(XK_8, 7) TAGKEYS(XK_9, 8)
-};
-
-static const Button buttons[] = {
-    { ClkLtSymbol,   0,      Button1, setlayout,      {0} },
-    { ClkLtSymbol,   0,      Button3, setlayout,      {.v = &layouts[2]} },
-    { ClkWinTitle,   0,      Button2, zoom,           {0} },
-    { ClkStatusText, 0,      Button2, spawn,          {.v = termcmd } },
-    { ClkStatusText, 0,      Button1, spawn,          {.v = noticmd } },
-    { ClkStatusText, 0,      Button3, spawn,          {.v = clipcmd } },
-    { ClkClientWin,  MODKEY, Button1, movemouse,      {0} },
-    { ClkClientWin,  MODKEY, Button2, togglefloating, {0} },
-    { ClkClientWin,  MODKEY, Button3, resizemouse,    {0} },
-    { ClkTagBar,     0,      Button1, view,           {0} },
-    { ClkTagBar,     0,      Button3, toggleview,     {0} },
-    { ClkTagBar,     MODKEY, Button1, tag,            {0} },
-    { ClkTagBar,     MODKEY, Button3, toggletag,      {0} },
-};
-DWMCONFIG
-
-    sudo make clean install
-    log "DWM успешно собран и установлен!"
-    cd ~
-}
-
-# ===================== 6. СБОРКА DMENU =====================
-build_dmenu() {
-    log "Загрузка и сборка dmenu..."
-    mkdir -p /tmp/suckless-build
-    cd /tmp/suckless-build
-    rm -rf dmenu dmenu-5.3 dmenu-5.3.tar.gz
-
-    wget --timeout=15 -q "https://dl.suckless.org/tools/dmenu-5.3.tar.gz" || \
-    curl -sLo dmenu-5.3.tar.gz "https://dl.suckless.org/tools/dmenu-5.3.tar.gz"
-
-    tar -xzf dmenu-5.3.tar.gz
-    mv dmenu-5.3 dmenu
-    rm dmenu-5.3.tar.gz
-    cd dmenu
-
-    cat > config.h << 'DMENUCONFIG'
-static int topbar = 1;
-static const char *fonts[] = { "JetBrains Mono:size=11" };
-static const char *prompt      = NULL;
-static const char *colors[SchemeLast][2] = {
-	[SchemeNorm] = { "#b5ada6", "#0c0b0a" },
-	[SchemeSel]  = { "#f5efe6", "#0c0b0a" }, 
-	[SchemeOut]  = { "#0c0b0a", "#1c1a18" },
-};
-static unsigned int lines      = 20;
-static const char worddelimiters[] = " ";
-DMENUCONFIG
-
-    sudo make clean install
-    log "dmenu установлен!"
-    cd ~
-}
-
-# ===================== 7. LOCKSCREEN =====================
-create_lockscreen() {
-    log "Создание блокировки..."
-    mkdir -p ~/bin
-
-    cat > ~/bin/lockscreen << 'LOCKSCREEN'
-#!/bin/bash
-export PATH="/usr/local/bin:/usr/bin:/bin:$HOME/bin:$PATH"
-
-TMPIMG="/tmp/lockscreen.png"
-
-if command -v scrot &>/dev/null; then
-    scrot -o "$TMPIMG" 2>/dev/null
-fi
-
-if [ -f "$TMPIMG" ] && command -v convert &>/dev/null; then
-    convert "$TMPIMG" \
-        -blur 0x18 \
-        -modulate 45 \
-        -fill '#0c0b0a99' -draw 'rectangle 0,0 9999,9999' \
-        "$TMPIMG" 2>/dev/null
-fi
-
-if i3lock --help 2>&1 | grep -q "insidecolor"; then
-    if [ -f "$TMPIMG" ]; then
-        i3lock \
-            --image="$TMPIMG" --nofork --clock \
-            --pass-media-keys --pass-volume-keys \
-            --radius=110 --ring-width=7 \
-            --insidecolor=00000000 --insidevercolor=00000000 --insidewrongcolor=00000000 \
-            --ringcolor=3a3632ff --ringvercolor=b5ada6ff --ringwrongcolor=6a4a3aff \
-            --line-uses-ring --linecolor=00000000 --separatorcolor=1c1a18ff \
-            --keyhlcolor=f5efe6ff --bshlcolor=6a6258ff \
-            --verifcolor=b5ada6ff --wrongcolor=f5efe6ff --modifcolor=b5ada6ff \
-            --timecolor=b5ada6ff --datecolor=b5ada6ff \
-            --timestr="%H:%M" --datestr="%a, %d %b" \
-            --veriftext="проверка..." --wrongtext="неверно" \
-            --noinputtext="" --locktext="блокировка..." --lockfailedtext="ошибка" \
-            --time-font="JetBrains Mono" --date-font="JetBrains Mono" \
-            --verif-font="JetBrains Mono" --wrong-font="JetBrains Mono" \
-            --timesize=52 --datesize=18 \
-            --ignore-empty-password --show-failed-attempts
-    else
-        i3lock --color=0c0b0a --nofork --clock --ignore-empty-password
-    fi
-else
-    if [ -f "$TMPIMG" ]; then
-        i3lock --image="$TMPIMG" --nofork
-    else
-        i3lock --color=0c0b0a --nofork
-    fi
-fi
-
-rm -f "$TMPIMG"
-LOCKSCREEN
-
-    chmod +x ~/bin/lockscreen
-}
-
-# ===================== 8. СКРИНШОТЫ =====================
-create_screenshot_script() {
-    log "Создание скриншотов..."
-    mkdir -p ~/bin ~/Pictures/Screenshots
-
-    cat > ~/bin/screenshot << 'SCREENSHOT'
-#!/bin/bash
-SCREENSHOT_DIR="$HOME/Pictures/Screenshots"
-mkdir -p "$SCREENSHOT_DIR"
-FILENAME="screenshot_$(date +'%Y-%m-%d_%H-%M-%S').png"
-FILEPATH="$SCREENSHOT_DIR/$FILENAME"
-scrot -s "$FILEPATH" 2>/dev/null
-if [ -f "$FILEPATH" ]; then
-    xclip -selection clipboard -t image/png -i "$FILEPATH" 2>/dev/null
-    notify-send "Скриншот" "$FILENAME" -i "$FILEPATH" -t 3000 2>/dev/null
-fi
-SCREENSHOT
-
-    cat > ~/bin/screenshot-full << 'SCREENSHOTFULL'
-#!/bin/bash
-SCREENSHOT_DIR="$HOME/Pictures/Screenshots"
-mkdir -p "$SCREENSHOT_DIR"
-FILENAME="screenshot_$(date +'%Y-%m-%d_%H-%M-%S')_full.png"
-FILEPATH="$SCREENSHOT_DIR/$FILENAME"
-scrot "$FILEPATH" 2>/dev/null
-if [ -f "$FILEPATH" ]; then
-    xclip -selection clipboard -t image/png -i "$FILEPATH" 2>/dev/null
-    notify-send "Скриншот" "$FILENAME" -i "$FILEPATH" -t 3000 2>/dev/null
-fi
-SCREENSHOTFULL
-
-    chmod +x ~/bin/screenshot ~/bin/screenshot-full
-}
-
-# ===================== 9. TELEGRAM =====================
-create_telegram_launcher() {
-    log "Создание Telegram..."
-    mkdir -p ~/bin
-    cat > ~/bin/telegram << 'TELEGRAM'
-#!/bin/bash
-if command -v telegram-desktop &>/dev/null; then
-    exec telegram-desktop "$@"
-elif command -v Telegram &>/dev/null; then
-    exec Telegram "$@"
-elif [ -x "/opt/telegram-desktop/Telegram" ]; then
-    exec /opt/telegram-desktop/Telegram "$@"
-else
-    notify-send "Telegram" "Не установлен!" -u critical
-    exit 1
-fi
-TELEGRAM
-    chmod +x ~/bin/telegram
-}
-
-# ===================== 10. ALACRITTY =====================
-create_alacritty_config() {
-    log "Создание Alacritty..."
+# ===================== 4. СТРУКТУРА ПАПОК =====================
+create_dirs() {
+    title "Создание структуры директорий"
+    mkdir -p ~/.config/sway/{config.d,themes,scripts}
+    mkdir -p ~/.config/waybar/themes
+    mkdir -p ~/.config/wofi
+    mkdir -p ~/.config/mako
+    mkdir -p ~/.config/swaylock
+    mkdir -p ~/.config/wlogout
     mkdir -p ~/.config/alacritty
-    cat > ~/.config/alacritty/alacritty.toml << 'ALACRITTY'
+    mkdir -p ~/bin
+    mkdir -p ~/Pictures/Screenshots
+    mkdir -p ~/Pictures/Wallpapers
+    xdg-user-dirs-update 2>/dev/null || true
+    log "Директории созданы"
+}
+
+# ===================== 5. ТЕМЫ (ЦВЕТОВЫЕ СХЕМЫ) =====================
+create_themes() {
+    title "Создание файлов тем"
+
+    # ─── ТЕМА 1: MONOCHROME (чёрно-белая, ваша любимая) ───
+    cat > ~/.config/sway/themes/monochrome.conf << 'EOF'
+# Monochrome — минимализм, чёрно-белая
+set $bg          #0c0b0a
+set $bg_alt      #1c1a18
+set $fg          #b5ada6
+set $fg_bright   #f5efe6
+set $accent      #f5efe6
+set $urgent      #8a8177
+set $border      #3a3632
+EOF
+
+    # ─── ТЕМА 2: CATPPUCCIN MOCHA (самая популярная в 2024) ───
+    cat > ~/.config/sway/themes/catppuccin.conf << 'EOF'
+# Catppuccin Mocha — популярная пастельная тёмная
+set $bg          #1e1e2e
+set $bg_alt      #313244
+set $fg          #cdd6f4
+set $fg_bright   #f5e0dc
+set $accent      #cba6f7
+set $urgent      #f38ba8
+set $border      #45475a
+EOF
+
+    # ─── ТЕМА 3: TOKYO NIGHT (популярная у разработчиков) ───
+    cat > ~/.config/sway/themes/tokyonight.conf << 'EOF'
+# Tokyo Night — сине-фиолетовая киберпанк
+set $bg          #1a1b26
+set $bg_alt      #24283b
+set $fg          #a9b1d6
+set $fg_bright   #c0caf5
+set $accent      #7aa2f7
+set $urgent      #f7768e
+set $border      #414868
+EOF
+
+    # ─── ТЕМА 4: GRUVBOX DARK (тёплая, ретро) ───
+    cat > ~/.config/sway/themes/gruvbox.conf << 'EOF'
+# Gruvbox Dark — тёплая ретро
+set $bg          #282828
+set $bg_alt      #3c3836
+set $fg          #ebdbb2
+set $fg_bright   #fbf1c7
+set $accent      #d79921
+set $urgent      #cc241d
+set $border      #504945
+EOF
+
+    # ─── ТЕМА 5: NORD (спокойная синяя) ───
+    cat > ~/.config/sway/themes/nord.conf << 'EOF'
+# Nord — арктическая, приглушённая
+set $bg          #2e3440
+set $bg_alt      #3b4252
+set $fg          #d8dee9
+set $fg_bright   #eceff4
+set $accent      #88c0d0
+set $urgent      #bf616a
+set $border      #4c566a
+EOF
+
+    # ─── ТЕМА 6: DRACULA (яркая, контрастная) ───
+    cat > ~/.config/sway/themes/dracula.conf << 'EOF'
+# Dracula — контрастная фиолетовая
+set $bg          #282a36
+set $bg_alt      #44475a
+set $fg          #f8f8f2
+set $fg_bright   #ffffff
+set $accent      #bd93f9
+set $urgent      #ff5555
+set $border      #6272a4
+EOF
+
+    # Активная тема — по умолчанию монохром
+    ln -sf ~/.config/sway/themes/monochrome.conf ~/.config/sway/themes/current.conf
+    log "6 тем созданы. Активна: monochrome"
+}
+
+# ===================== 6. ПЕРЕКЛЮЧАТЕЛЬ ТЕМ =====================
+create_theme_switcher() {
+    title "Создание переключателя тем"
+
+    cat > ~/bin/theme-switcher << 'THEMESW'
+#!/bin/bash
+# Переключатель тем Sway + Waybar + Alacritty + Mako
+
+THEMES_DIR="$HOME/.config/sway/themes"
+WAYBAR_THEMES="$HOME/.config/waybar/themes"
+
+CHOICE=$(echo -e "monochrome\ncatppuccin\ntokyonight\ngruvbox\nnord\ndracula" | \
+    wofi --dmenu --prompt "Выбор темы:" --width 300 --height 300)
+
+[ -z "$CHOICE" ] && exit 0
+
+# Sway
+ln -sf "$THEMES_DIR/${CHOICE}.conf" "$THEMES_DIR/current.conf"
+
+# Waybar
+ln -sf "$WAYBAR_THEMES/${CHOICE}.css" "$HOME/.config/waybar/style.css"
+
+# Alacritty
+ln -sf "$HOME/.config/alacritty/themes/${CHOICE}.toml" "$HOME/.config/alacritty/current-theme.toml"
+
+# Mako
+ln -sf "$HOME/.config/mako/themes/${CHOICE}" "$HOME/.config/mako/config"
+
+# Перезапуск компонентов
+swaymsg reload
+pkill waybar && waybar &
+pkill mako && mako &
+
+notify-send "Тема изменена" "Применена: $CHOICE" -i preferences-desktop-theme
+THEMESW
+    chmod +x ~/bin/theme-switcher
+    log "Переключатель тем создан (Super+Shift+T)"
+}
+
+# ===================== 7. КОНФИГ SWAY =====================
+create_sway_config() {
+    title "Создание конфигурации Sway"
+
+    cat > ~/.config/sway/config << 'SWAYCFG'
+### Sway Config — Performance + Practicality Edition ###
+
+# ─── МОДИФИКАТОР ───
+set $mod Mod4
+
+# ─── ПРОГРАММЫ ПО УМОЛЧАНИЮ ───
+set $term alacritty
+set $menu wofi --show drun
+set $filemanager thunar
+set $browser zen-browser
+set $editor alacritty -e nvim
+
+# ─── ЗАГРУЗКА ТЕМЫ ───
+include ~/.config/sway/themes/current.conf
+
+# ─── ВНЕШНИЙ ВИД ───
+font pango:JetBrains Mono 10
+
+# Границы
+default_border pixel 2
+default_floating_border pixel 2
+smart_borders on
+smart_gaps on
+gaps inner 8
+gaps outer 4
+
+# Цвета (используются переменные из темы)
+# class                 border      backgr.     text        indicator   child_border
+client.focused          $accent     $bg_alt     $fg_bright  $accent     $accent
+client.focused_inactive $border     $bg         $fg         $border     $border
+client.unfocused        $border     $bg         $fg         $border     $border
+client.urgent           $urgent     $urgent     $fg_bright  $urgent     $urgent
+client.background       $bg
+
+# ─── ОБОИ ───
+output * bg #0c0b0a solid_color
+# Если есть обои: output * bg ~/Pictures/wallpaper.png fill
+
+# ─── ВВОД (МЫШЬ, КЛАВИАТУРА) ───
+input "type:keyboard" {
+    xkb_layout us,ru
+    xkb_options grp:win_space_toggle,caps:escape
+    repeat_delay 250
+    repeat_rate 40
+}
+
+input "type:pointer" {
+    accel_profile flat
+    pointer_accel 0
+}
+
+input "type:touchpad" {
+    tap enabled
+    natural_scroll enabled
+    dwt enabled
+    accel_profile adaptive
+}
+
+# ─── ПРОИЗВОДИТЕЛЬНОСТЬ ───
+# VRR / Adaptive Sync — критично для игр
+output * adaptive_sync on
+
+# Отключить эффекты для полноэкранных окон (максимум FPS)
+for_window [app_id=".*"] inhibit_idle fullscreen
+
+# ─── ПРАВИЛА ОКОН ───
+for_window [app_id="pavucontrol"] floating enable, resize set 800 600
+for_window [app_id="blueman-manager"] floating enable
+for_window [app_id="nm-connection-editor"] floating enable
+for_window [app_id="thunar" title="File Operation Progress"] floating enable
+for_window [title="Picture-in-Picture"] floating enable, sticky enable
+for_window [app_id="firefox" title="^Picture-in-Picture$"] floating enable, sticky enable
+for_window [class="steam" title="^Friends List$"] floating enable
+for_window [class="Steam" title="^Friends List$"] floating enable
+
+# Steam — на 4-й рабочий стол
+assign [class="steam"] workspace 4
+assign [class="Steam"] workspace 4
+
+# Telegram — на 3-й
+assign [app_id="org.telegram.desktop"] workspace 3
+
+# ─── ЗАПУСК ПРОГРАММ ───
+bindsym $mod+Return exec $term
+bindsym $mod+d exec $menu
+bindsym $mod+w exec $browser
+bindsym $mod+e exec $filemanager
+bindsym $mod+t exec telegram-desktop
+bindsym $mod+Shift+s exec steam
+
+# ─── УПРАВЛЕНИЕ ОКНАМИ ───
+bindsym $mod+Shift+q kill
+bindsym $mod+Shift+c reload
+bindsym $mod+Shift+e exec ~/bin/power-menu
+
+# Фокус
+bindsym $mod+h focus left
+bindsym $mod+j focus down
+bindsym $mod+k focus up
+bindsym $mod+l focus right
+
+# Перемещение
+bindsym $mod+Shift+h move left
+bindsym $mod+Shift+j move down
+bindsym $mod+Shift+k move up
+bindsym $mod+Shift+l move right
+
+# Разделение
+bindsym $mod+b splith
+bindsym $mod+v splitv
+
+# Раскладки
+bindsym $mod+s layout stacking
+bindsym $mod+w layout tabbed
+bindsym $mod+g layout toggle split
+
+# Полный экран / плавающий
+bindsym $mod+f fullscreen
+bindsym $mod+Shift+space floating toggle
+bindsym $mod+space focus mode_toggle
+
+# Скрыть панель
+bindsym $mod+y exec pkill -SIGUSR1 waybar
+
+# ─── РАБОЧИЕ СТОЛЫ ───
+bindsym $mod+1 workspace number 1
+bindsym $mod+2 workspace number 2
+bindsym $mod+3 workspace number 3
+bindsym $mod+4 workspace number 4
+bindsym $mod+5 workspace number 5
+bindsym $mod+6 workspace number 6
+bindsym $mod+7 workspace number 7
+bindsym $mod+8 workspace number 8
+bindsym $mod+9 workspace number 9
+
+bindsym $mod+Shift+1 move container to workspace number 1
+bindsym $mod+Shift+2 move container to workspace number 2
+bindsym $mod+Shift+3 move container to workspace number 3
+bindsym $mod+Shift+4 move container to workspace number 4
+bindsym $mod+Shift+5 move container to workspace number 5
+bindsym $mod+Shift+6 move container to workspace number 6
+bindsym $mod+Shift+7 move container to workspace number 7
+bindsym $mod+Shift+8 move container to workspace number 8
+bindsym $mod+Shift+9 move container to workspace number 9
+
+bindsym $mod+Tab workspace back_and_forth
+
+# ─── СКРИНШОТЫ ───
+bindsym Print exec ~/bin/screenshot area
+bindsym Shift+Print exec ~/bin/screenshot full
+bindsym Ctrl+Print exec ~/bin/screenshot window
+bindsym $mod+Print exec ~/bin/screenshot edit
+
+# ─── БУФЕР ОБМЕНА ───
+bindsym $mod+shift+v exec cliphist list | wofi --dmenu | cliphist decode | wl-copy
+
+# ─── БЛОКИРОВКА / ВЫХОД ───
+bindsym $mod+Shift+l exec ~/bin/lockscreen
+
+# ─── ПЕРЕКЛЮЧАТЕЛЬ ТЕМ ───
+bindsym $mod+Shift+t exec ~/bin/theme-switcher
+
+# ─── МУЛЬТИМЕДИА ───
+bindsym XF86AudioRaiseVolume exec wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+
+bindsym XF86AudioLowerVolume exec wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-
+bindsym XF86AudioMute exec wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle
+bindsym XF86AudioMicMute exec wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle
+bindsym XF86MonBrightnessUp exec brightnessctl set +5%
+bindsym XF86MonBrightnessDown exec brightnessctl set 5%-
+bindsym XF86AudioPlay exec playerctl play-pause
+bindsym XF86AudioNext exec playerctl next
+bindsym XF86AudioPrev exec playerctl previous
+
+# ─── РЕЖИМ ИЗМЕНЕНИЯ РАЗМЕРА ───
+mode "resize" {
+    bindsym h resize shrink width 20px
+    bindsym j resize grow height 20px
+    bindsym k resize shrink height 20px
+    bindsym l resize grow width 20px
+    bindsym Return mode "default"
+    bindsym Escape mode "default"
+}
+bindsym $mod+r mode "resize"
+
+# ─── УПРАВЛЕНИЕ УВЕДОМЛЕНИЯМИ ───
+bindsym $mod+n exec makoctl dismiss
+bindsym $mod+Shift+n exec makoctl dismiss --all
+bindsym $mod+grave exec makoctl restore
+
+# ─── АВТОЗАПУСК ───
+exec /usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1
+exec dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP
+exec waybar
+exec mako
+exec wl-paste --type text --watch cliphist store
+exec wl-paste --type image --watch cliphist store
+exec wl-clip-persist --clipboard regular
+exec nm-applet --indicator
+exec blueman-applet
+exec wlsunset -l 55.7 -L 37.6 -t 3500 -T 6500
+exec swayidle -w \
+    timeout 300 '~/bin/lockscreen' \
+    timeout 600 'swaymsg "output * dpms off"' \
+    resume 'swaymsg "output * dpms on"' \
+    before-sleep '~/bin/lockscreen'
+
+# ─── ПОДКЛЮЧАЕМЫЕ КОНФИГИ ───
+include ~/.config/sway/config.d/*.conf
+SWAYCFG
+
+    log "Sway config создан"
+}
+
+# ===================== 8. WAYBAR =====================
+create_waybar() {
+    title "Создание Waybar"
+
+    # ─── КОНФИГ WAYBAR ───
+    cat > ~/.config/waybar/config.jsonc << 'WAYBAR'
+{
+    "layer": "top",
+    "position": "top",
+    "height": 30,
+    "spacing": 4,
+    "modules-left": ["sway/workspaces", "sway/mode", "sway/window"],
+    "modules-center": ["clock"],
+    "modules-right": [
+        "tray",
+        "idle_inhibitor",
+        "pulseaudio",
+        "network",
+        "cpu",
+        "memory",
+        "temperature",
+        "backlight",
+        "battery",
+        "custom/notifications"
+    ],
+
+    "sway/workspaces": {
+        "disable-scroll": true,
+        "all-outputs": true,
+        "format": "{name}"
+    },
+
+    "sway/mode": {
+        "format": "<span style=\"italic\">{}</span>"
+    },
+
+    "sway/window": {
+        "max-length": 50,
+        "tooltip": false
+    },
+
+    "clock": {
+        "format": "{:%H:%M   %a, %d %b}",
+        "tooltip-format": "<big>{:%Y %B}</big>\n<tt><small>{calendar}</small></tt>",
+        "calendar": {
+            "mode": "month",
+            "mode-mon-col": 3,
+            "on-scroll": 1
+        }
+    },
+
+    "cpu": {
+        "format": "CPU {usage}%",
+        "interval": 5,
+        "tooltip": true
+    },
+
+    "memory": {
+        "format": "RAM {percentage}%",
+        "interval": 5,
+        "tooltip-format": "{used:0.1f}G / {total:0.1f}G"
+    },
+
+    "temperature": {
+        "critical-threshold": 80,
+        "format": "{temperatureC}°C",
+        "interval": 5
+    },
+
+    "backlight": {
+        "format": "BR {percent}%",
+        "on-scroll-up": "brightnessctl set +5%",
+        "on-scroll-down": "brightnessctl set 5%-"
+    },
+
+    "battery": {
+        "states": {
+            "warning": 30,
+            "critical": 15
+        },
+        "format": "{icon} {capacity}%",
+        "format-charging": "CHR {capacity}%",
+        "format-plugged": "AC {capacity}%",
+        "format-icons": ["BAT", "BAT", "BAT", "BAT", "BAT"]
+    },
+
+    "network": {
+        "format-wifi": "WIFI {signalStrength}%",
+        "format-ethernet": "ETH",
+        "format-disconnected": "OFF",
+        "tooltip-format": "{ifname}: {ipaddr}",
+        "on-click": "nm-connection-editor"
+    },
+
+    "pulseaudio": {
+        "format": "VOL {volume}%",
+        "format-muted": "MUTE",
+        "format-bluetooth": "BT {volume}%",
+        "on-click": "pavucontrol",
+        "scroll-step": 5
+    },
+
+    "tray": {
+        "icon-size": 16,
+        "spacing": 8
+    },
+
+    "idle_inhibitor": {
+        "format": "{icon}",
+        "format-icons": {
+            "activated": "AWAKE",
+            "deactivated": "IDLE"
+        }
+    },
+
+    "custom/notifications": {
+        "format": "N",
+        "on-click": "makoctl restore",
+        "on-click-right": "makoctl dismiss --all",
+        "tooltip": false
+    }
+}
+WAYBAR
+
+    # ─── ТЕМЫ WAYBAR ───
+
+    # Monochrome
+    cat > ~/.config/waybar/themes/monochrome.css << 'EOF'
+* {
+    font-family: "JetBrains Mono", "Font Awesome 6 Free";
+    font-size: 12px;
+    border: none;
+    border-radius: 0;
+    min-height: 0;
+}
+window#waybar {
+    background: #0c0b0a;
+    color: #b5ada6;
+    border-bottom: 1px solid #1c1a18;
+}
+#workspaces button {
+    padding: 0 8px;
+    color: #b5ada6;
+    background: transparent;
+    border-bottom: 2px solid transparent;
+}
+#workspaces button.focused {
+    color: #f5efe6;
+    border-bottom: 2px solid #f5efe6;
+}
+#workspaces button.urgent { color: #8a8177; }
+#clock, #battery, #cpu, #memory, #temperature, #backlight,
+#network, #pulseaudio, #tray, #mode, #idle_inhibitor,
+#custom-notifications, #window {
+    padding: 0 10px;
+    color: #b5ada6;
+}
+#clock { color: #f5efe6; font-weight: bold; }
+#battery.warning { color: #d5cdc4; }
+#battery.critical { color: #f5efe6; }
+EOF
+
+    # Catppuccin
+    cat > ~/.config/waybar/themes/catppuccin.css << 'EOF'
+* { font-family: "JetBrains Mono", "Font Awesome 6 Free"; font-size: 12px; border: none; border-radius: 0; min-height: 0; }
+window#waybar { background: #1e1e2e; color: #cdd6f4; }
+#workspaces button { padding: 0 8px; color: #6c7086; background: transparent; }
+#workspaces button.focused { color: #cba6f7; border-bottom: 2px solid #cba6f7; }
+#workspaces button.urgent { color: #f38ba8; }
+#clock, #battery, #cpu, #memory, #temperature, #backlight, #network, #pulseaudio, #tray, #mode, #idle_inhibitor, #custom-notifications, #window { padding: 0 10px; color: #cdd6f4; }
+#clock { color: #f5e0dc; font-weight: bold; }
+#battery.warning { color: #fab387; }
+#battery.critical { color: #f38ba8; }
+EOF
+
+    # Tokyo Night
+    cat > ~/.config/waybar/themes/tokyonight.css << 'EOF'
+* { font-family: "JetBrains Mono", "Font Awesome 6 Free"; font-size: 12px; border: none; border-radius: 0; min-height: 0; }
+window#waybar { background: #1a1b26; color: #a9b1d6; }
+#workspaces button { padding: 0 8px; color: #565f89; background: transparent; }
+#workspaces button.focused { color: #7aa2f7; border-bottom: 2px solid #7aa2f7; }
+#workspaces button.urgent { color: #f7768e; }
+#clock, #battery, #cpu, #memory, #temperature, #backlight, #network, #pulseaudio, #tray, #mode, #idle_inhibitor, #custom-notifications, #window { padding: 0 10px; color: #a9b1d6; }
+#clock { color: #c0caf5; font-weight: bold; }
+#battery.warning { color: #e0af68; }
+#battery.critical { color: #f7768e; }
+EOF
+
+    # Gruvbox
+    cat > ~/.config/waybar/themes/gruvbox.css << 'EOF'
+* { font-family: "JetBrains Mono", "Font Awesome 6 Free"; font-size: 12px; border: none; border-radius: 0; min-height: 0; }
+window#waybar { background: #282828; color: #ebdbb2; }
+#workspaces button { padding: 0 8px; color: #928374; background: transparent; }
+#workspaces button.focused { color: #d79921; border-bottom: 2px solid #d79921; }
+#workspaces button.urgent { color: #cc241d; }
+#clock, #battery, #cpu, #memory, #temperature, #backlight, #network, #pulseaudio, #tray, #mode, #idle_inhibitor, #custom-notifications, #window { padding: 0 10px; color: #ebdbb2; }
+#clock { color: #fbf1c7; font-weight: bold; }
+#battery.warning { color: #d79921; }
+#battery.critical { color: #cc241d; }
+EOF
+
+    # Nord
+    cat > ~/.config/waybar/themes/nord.css << 'EOF'
+* { font-family: "JetBrains Mono", "Font Awesome 6 Free"; font-size: 12px; border: none; border-radius: 0; min-height: 0; }
+window#waybar { background: #2e3440; color: #d8dee9; }
+#workspaces button { padding: 0 8px; color: #4c566a; background: transparent; }
+#workspaces button.focused { color: #88c0d0; border-bottom: 2px solid #88c0d0; }
+#workspaces button.urgent { color: #bf616a; }
+#clock, #battery, #cpu, #memory, #temperature, #backlight, #network, #pulseaudio, #tray, #mode, #idle_inhibitor, #custom-notifications, #window { padding: 0 10px; color: #d8dee9; }
+#clock { color: #eceff4; font-weight: bold; }
+#battery.warning { color: #ebcb8b; }
+#battery.critical { color: #bf616a; }
+EOF
+
+    # Dracula
+    cat > ~/.config/waybar/themes/dracula.css << 'EOF'
+* { font-family: "JetBrains Mono", "Font Awesome 6 Free"; font-size: 12px; border: none; border-radius: 0; min-height: 0; }
+window#waybar { background: #282a36; color: #f8f8f2; }
+#workspaces button { padding: 0 8px; color: #6272a4; background: transparent; }
+#workspaces button.focused { color: #bd93f9; border-bottom: 2px solid #bd93f9; }
+#workspaces button.urgent { color: #ff5555; }
+#clock, #battery, #cpu, #memory, #temperature, #backlight, #network, #pulseaudio, #tray, #mode, #idle_inhibitor, #custom-notifications, #window { padding: 0 10px; color: #f8f8f2; }
+#clock { color: #ffffff; font-weight: bold; }
+#battery.warning { color: #f1fa8c; }
+#battery.critical { color: #ff5555; }
+EOF
+
+    # Активная — монохром
+    ln -sf ~/.config/waybar/themes/monochrome.css ~/.config/waybar/style.css
+    log "Waybar настроен с 6 темами"
+}
+
+# ===================== 9. ALACRITTY (с темами) =====================
+create_alacritty() {
+    title "Создание Alacritty"
+
+    mkdir -p ~/.config/alacritty/themes
+
+    # Базовый конфиг
+    cat > ~/.config/alacritty/alacritty.toml << 'EOF'
+[general]
+import = ["~/.config/alacritty/current-theme.toml"]
+
 [env]
 TERM = "xterm-256color"
 
 [window]
-padding = { x = 14, y = 14 }
+padding = { x = 12, y = 12 }
 dynamic_padding = true
 decorations = "None"
 opacity = 0.95
@@ -510,832 +720,492 @@ history = 10000
 multiplier = 3
 
 [font]
-size = 13.0
+size = 12.0
 [font.normal]
-family = "JetBrains Mono"
+family = "JetBrainsMono Nerd Font"
 style = "Regular"
 [font.bold]
-family = "JetBrains Mono"
+family = "JetBrainsMono Nerd Font"
 style = "Bold"
 [font.italic]
-family = "JetBrains Mono"
+family = "JetBrainsMono Nerd Font"
 style = "Italic"
-
-[colors.primary]
-background = "#0c0b0a"
-foreground = "#b5ada6"
-
-[colors.cursor]
-text    = "#0c0b0a"
-cursor  = "#f5efe6"
-
-[colors.selection]
-text       = "#0c0b0a"
-background = "#3a3632"
-
-[colors.normal]
-black   = "#0c0b0a"
-red     = "#8a8177"
-green   = "#6a635a"
-yellow  = "#d5cdc4"
-blue    = "#5a544d"
-magenta = "#9a9086"
-cyan    = "#4a453f"
-white   = "#b5ada6"
-
-[colors.bright]
-black   = "#3a3632"
-red     = "#a89e93"
-green   = "#8a8177"
-yellow  = "#f5efe6"
-blue    = "#7a7268"
-magenta = "#c5bdb2"
-cyan    = "#6a635a"
-white   = "#f5efe6"
-
-[colors.dim]
-black   = "#0c0b0a"
-red     = "#5a544d"
-green   = "#4a453f"
-yellow  = "#8a8177"
-blue    = "#3a3632"
-magenta = "#6a635a"
-cyan    = "#2a2622"
-white   = "#7a7268"
 
 [keyboard]
 bindings = [
-    { key = "V",        mods = "Control|Shift", action = "Paste" },
-    { key = "C",        mods = "Control|Shift", action = "Copy" },
-    { key = "Plus",     mods = "Control",       action = "IncreaseFontSize" },
-    { key = "Minus",    mods = "Control",       action = "DecreaseFontSize" },
-    { key = "Key0",     mods = "Control",       action = "ResetFontSize" },
-    { key = "F",        mods = "Control|Shift", action = "SearchForward" },
-    { key = "PageUp",   mods = "Shift",         action = "ScrollPageUp" },
-    { key = "PageDown", mods = "Shift",         action = "ScrollPageDown" },
-    { key = "Up",       mods = "Shift",         action = "ScrollLineUp" },
-    { key = "Down",     mods = "Shift",         action = "ScrollLineDown" },
+    { key = "V", mods = "Control|Shift", action = "Paste" },
+    { key = "C", mods = "Control|Shift", action = "Copy" },
+    { key = "Plus", mods = "Control", action = "IncreaseFontSize" },
+    { key = "Minus", mods = "Control", action = "DecreaseFontSize" },
+    { key = "Key0", mods = "Control", action = "ResetFontSize" }
 ]
 
 [mouse]
 hide_when_typing = true
-ALACRITTY
+EOF
+
+    # Темы для Alacritty
+    cat > ~/.config/alacritty/themes/monochrome.toml << 'EOF'
+[colors.primary]
+background = "#0c0b0a"
+foreground = "#b5ada6"
+[colors.cursor]
+text = "#0c0b0a"
+cursor = "#f5efe6"
+[colors.normal]
+black = "#0c0b0a"; red = "#8a8177"; green = "#6a635a"; yellow = "#d5cdc4"
+blue = "#5a544d"; magenta = "#9a9086"; cyan = "#4a453f"; white = "#b5ada6"
+[colors.bright]
+black = "#3a3632"; red = "#a89e93"; green = "#8a8177"; yellow = "#f5efe6"
+blue = "#7a7268"; magenta = "#c5bdb2"; cyan = "#6a635a"; white = "#f5efe6"
+EOF
+
+    cat > ~/.config/alacritty/themes/catppuccin.toml << 'EOF'
+[colors.primary]
+background = "#1e1e2e"
+foreground = "#cdd6f4"
+[colors.cursor]
+text = "#1e1e2e"; cursor = "#f5e0dc"
+[colors.normal]
+black = "#45475a"; red = "#f38ba8"; green = "#a6e3a1"; yellow = "#f9e2af"
+blue = "#89b4fa"; magenta = "#f5c2e7"; cyan = "#94e2d5"; white = "#bac2de"
+[colors.bright]
+black = "#585b70"; red = "#f38ba8"; green = "#a6e3a1"; yellow = "#f9e2af"
+blue = "#89b4fa"; magenta = "#f5c2e7"; cyan = "#94e2d5"; white = "#a6adc8"
+EOF
+
+    cat > ~/.config/alacritty/themes/tokyonight.toml << 'EOF'
+[colors.primary]
+background = "#1a1b26"
+foreground = "#a9b1d6"
+[colors.normal]
+black = "#32344a"; red = "#f7768e"; green = "#9ece6a"; yellow = "#e0af68"
+blue = "#7aa2f7"; magenta = "#ad8ee6"; cyan = "#449dab"; white = "#787c99"
+[colors.bright]
+black = "#444b6a"; red = "#ff7a93"; green = "#b9f27c"; yellow = "#ff9e64"
+blue = "#7da6ff"; magenta = "#bb9af7"; cyan = "#0db9d7"; white = "#acb0d0"
+EOF
+
+    cat > ~/.config/alacritty/themes/gruvbox.toml << 'EOF'
+[colors.primary]
+background = "#282828"
+foreground = "#ebdbb2"
+[colors.normal]
+black = "#282828"; red = "#cc241d"; green = "#98971a"; yellow = "#d79921"
+blue = "#458588"; magenta = "#b16286"; cyan = "#689d6a"; white = "#a89984"
+[colors.bright]
+black = "#928374"; red = "#fb4934"; green = "#b8bb26"; yellow = "#fabd2f"
+blue = "#83a598"; magenta = "#d3869b"; cyan = "#8ec07c"; white = "#ebdbb2"
+EOF
+
+    cat > ~/.config/alacritty/themes/nord.toml << 'EOF'
+[colors.primary]
+background = "#2e3440"
+foreground = "#d8dee9"
+[colors.normal]
+black = "#3b4252"; red = "#bf616a"; green = "#a3be8c"; yellow = "#ebcb8b"
+blue = "#81a1c1"; magenta = "#b48ead"; cyan = "#88c0d0"; white = "#e5e9f0"
+[colors.bright]
+black = "#4c566a"; red = "#bf616a"; green = "#a3be8c"; yellow = "#ebcb8b"
+blue = "#81a1c1"; magenta = "#b48ead"; cyan = "#8fbcbb"; white = "#eceff4"
+EOF
+
+    cat > ~/.config/alacritty/themes/dracula.toml << 'EOF'
+[colors.primary]
+background = "#282a36"
+foreground = "#f8f8f2"
+[colors.normal]
+black = "#21222c"; red = "#ff5555"; green = "#50fa7b"; yellow = "#f1fa8c"
+blue = "#bd93f9"; magenta = "#ff79c6"; cyan = "#8be9fd"; white = "#f8f8f2"
+[colors.bright]
+black = "#6272a4"; red = "#ff6e6e"; green = "#69ff94"; yellow = "#ffffa5"
+blue = "#d6acff"; magenta = "#ff92df"; cyan = "#a4ffff"; white = "#ffffff"
+EOF
+
+    ln -sf ~/.config/alacritty/themes/monochrome.toml ~/.config/alacritty/current-theme.toml
+    log "Alacritty настроен с 6 темами"
 }
 
-# ===================== 11. МЫШЬ =====================
-create_mouse_config() {
-    log "Отключение акселерации..."
-    sudo mkdir -p /etc/X11/xorg.conf.d
-    sudo tee /etc/X11/xorg.conf.d/50-mouse-accel.conf > /dev/null << 'MOUSECONF'
-Section "InputClass"
-    Identifier "Mouse - No Acceleration"
-    MatchIsPointer "yes"
-    Option "AccelProfile" "flat"
-    Option "AccelSpeed" "0"
-    Option "TransformationMatrix" "1 0 0 0 1 0 0 0 1"
-EndSection
-Section "InputClass"
-    Identifier "Touchpad - No Acceleration"
-    MatchIsTouchpad "yes"
-    Option "AccelProfile" "flat"
-    Option "AccelSpeed" "0"
-EndSection
-MOUSECONF
+# ===================== 10. WOFI =====================
+create_wofi() {
+    title "Создание Wofi (launcher)"
+
+    cat > ~/.config/wofi/config << 'EOF'
+width=600
+height=400
+location=center
+show=drun
+prompt=Поиск:
+filter_rate=100
+allow_markup=true
+no_actions=true
+halign=fill
+orientation=vertical
+content_halign=fill
+insensitive=true
+allow_images=true
+image_size=24
+gtk_dark=true
+EOF
+
+    cat > ~/.config/wofi/style.css << 'EOF'
+window {
+    margin: 0px;
+    background-color: #0c0b0a;
+    border: 2px solid #3a3632;
+    font-family: "JetBrains Mono";
+    font-size: 12px;
+}
+#input {
+    margin: 8px;
+    padding: 8px;
+    border: none;
+    color: #f5efe6;
+    background-color: #1c1a18;
+    border-radius: 0;
+}
+#inner-box { margin: 4px; background-color: #0c0b0a; }
+#outer-box { margin: 0; padding: 4px; background-color: #0c0b0a; }
+#scroll { margin: 0; padding: 0; }
+#text { margin: 4px; color: #b5ada6; }
+#entry { padding: 6px; }
+#entry:selected {
+    background-color: #1c1a18;
+    border-left: 2px solid #f5efe6;
+}
+#entry:selected #text { color: #f5efe6; }
+EOF
+    log "Wofi настроен"
 }
 
-# ===================== 12. NIGHTSHIFT =====================
-create_nightshift() {
-    log "Создание Nightshift..."
-    mkdir -p ~/bin
+# ===================== 11. MAKO (уведомления) =====================
+create_mako() {
+    title "Создание Mako"
 
-    cat > ~/bin/nightshift << 'NIGHTSHIFT'
-#!/bin/bash
-export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
-export DISPLAY="${DISPLAY:-:0}"
+    mkdir -p ~/.config/mako/themes
 
-get_values() {
-    local h=$1 m=$2
-    local t=$(( h * 60 + m ))
-    local br gr gg gb
+    cat > ~/.config/mako/themes/monochrome << 'EOF'
+font=JetBrains Mono 10
+background-color=#0c0b0a
+text-color=#b5ada6
+border-color=#3a3632
+border-size=2
+border-radius=0
+width=350
+height=100
+margin=10
+padding=12
+default-timeout=5000
+ignore-timeout=1
+max-icon-size=48
+icon-location=left
 
-    if [ $t -ge 360 ] && [ $t -lt 540 ]; then
-        local p=$(echo "scale=4; ($t - 360) / 180" | bc)
-        br=$(echo "scale=4; 0.85 + 0.15 * $p" | bc)
-        gr="1.0"
-        gg=$(echo "scale=4; 0.90 + 0.10 * $p" | bc)
-        gb=$(echo "scale=4; 0.80 + 0.20 * $p" | bc)
-    elif [ $t -ge 540 ] && [ $t -lt 1080 ]; then
-        br="1.0"; gr="1.0"; gg="1.0"; gb="1.0"
-    elif [ $t -ge 1080 ] && [ $t -lt 1260 ]; then
-        local p=$(echo "scale=4; ($t - 1080) / 180" | bc)
-        br=$(echo "scale=4; 1.0 - 0.20 * $p" | bc)
-        gr="1.0"
-        gg=$(echo "scale=4; 1.0 - 0.12 * $p" | bc)
-        gb=$(echo "scale=4; 1.0 - 0.25 * $p" | bc)
-    elif [ $t -ge 1260 ] && [ $t -lt 1440 ]; then
-        local p=$(echo "scale=4; ($t - 1260) / 180" | bc)
-        br=$(echo "scale=4; 0.80 - 0.10 * $p" | bc)
-        gr="1.0"
-        gg=$(echo "scale=4; 0.88 - 0.05 * $p" | bc)
-        gb=$(echo "scale=4; 0.75 - 0.10 * $p" | bc)
-    else
-        br="0.70"; gr="1.0"; gg="0.83"; gb="0.65"
-    fi
-    echo "$br $gr $gg $gb"
-}
+[urgency=low]
+border-color=#3a3632
+default-timeout=3000
 
-while true; do
-    vals=$(get_values $(date +%-H) $(date +%-M))
-    br=$(echo "$vals" | awk '{print $1}')
-    gr=$(echo "$vals" | awk '{print $2}')
-    gg=$(echo "$vals" | awk '{print $3}')
-    gb=$(echo "$vals" | awk '{print $4}')
-    for o in $(xrandr --query 2>/dev/null | grep " connected" | awk '{print $1}'); do
-        xrandr --output "$o" --brightness "$br" --gamma "${gr}:${gg}:${gb}" 2>/dev/null
+[urgency=normal]
+border-color=#5a544d
+
+[urgency=critical]
+border-color=#f5efe6
+text-color=#f5efe6
+default-timeout=0
+EOF
+
+    # Другие темы (сокращенно, с теми же настройками, только цвета)
+    for theme in catppuccin tokyonight gruvbox nord dracula; do
+        cp ~/.config/mako/themes/monochrome ~/.config/mako/themes/$theme
     done
-    sleep 60
-done
-NIGHTSHIFT
-    chmod +x ~/bin/nightshift
-
-    cat > ~/bin/nightshift-reset << 'NSRESET'
-#!/bin/bash
-export DISPLAY="${DISPLAY:-:0}"
-for o in $(xrandr --query 2>/dev/null | grep " connected" | awk '{print $1}'); do
-    xrandr --output "$o" --brightness 1.0 --gamma 1.0:1.0:1.0
-done
-echo "Экран сброшен."
-NSRESET
-    chmod +x ~/bin/nightshift-reset
-
-    if ! grep -q 'export PATH="$HOME/bin:$PATH"' ~/.bashrc; then
-        echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc
-    fi
-}
-
-# ===================== 13. СТАТУС-БАР (БЕЗ CPU И RAM) =====================
-create_statusbar() {
-    log "Создание статус-бара..."
-    mkdir -p ~/bin
-
-    cat > ~/bin/dwm-statusbar.sh << 'STATUSBAR'
-#!/bin/bash
-export PATH="/usr/local/bin:/usr/bin:/bin:$HOME/bin:$PATH"
-export DISPLAY="${DISPLAY:-:0}"
-
-xsetroot -name " Загрузка... "
-sleep 1
-
-while true; do
-    DATE=$(date +'%a %d %b')
-    TIME=$(date +'%H:%M')
-
-    # Уведомления
-    NOTIF=""
-    if command -v dunstctl &>/dev/null; then
-        N=$(dunstctl count history 2>/dev/null | head -1)
-        if [ -n "$N" ] && [ "$N" -gt 0 ]; then
-            NOTIF="[N:${N}] | "
-        fi
-        PAUSED=$(dunstctl is-paused 2>/dev/null)
-        if [ "$PAUSED" = "true" ]; then
-            NOTIF="[PAUSED] | "
-        fi
-    fi
-
-    # Батарея
-    BAT=""
-    if [ -f /sys/class/power_supply/BAT0/capacity ]; then
-        BAT_CAP=$(cat /sys/class/power_supply/BAT0/capacity 2>/dev/null)
-        BAT_STATUS=$(cat /sys/class/power_supply/BAT0/status 2>/dev/null)
-        if [ "$BAT_STATUS" = "Charging" ]; then
-            BAT="CHR ${BAT_CAP}% | "
-        elif [ -n "$BAT_CAP" ]; then
-            BAT="BAT ${BAT_CAP}% | "
-        fi
-    fi
-
-    # Звук
-    VOL=""
-    if command -v amixer &>/dev/null; then
-        AMIXER_OUT=$(amixer sget Master 2>/dev/null)
-        if [ -n "$AMIXER_OUT" ]; then
-            if echo "$AMIXER_OUT" | grep -q "\[off\]"; then
-                VOL="MUTE | "
-            else
-                V=$(echo "$AMIXER_OUT" | grep -o -m 1 '\[[0-9]*%\]' | tr -d '[]%')
-                if [ -n "$V" ]; then
-                    VOL="VOL ${V}% | "
-                fi
-            fi
-        fi
-    fi
-
-    # Вывод финальной строки без показателей CPU и RAM
-    STATUS=" ${NOTIF}${VOL}${BAT}${DATE} ${TIME} "
-    xsetroot -name "$STATUS"
     
-    # Спим чуть дольше (4с), экономя батарею ноутбука
-    sleep 4
-done
-STATUSBAR
-
-    chmod +x ~/bin/dwm-statusbar.sh
+    ln -sf ~/.config/mako/themes/monochrome ~/.config/mako/config
+    log "Mako настроен"
 }
 
-# ===================== 14. GTK ТЕМА =====================
-create_gtk_theme() {
-    log "Настройка GTK темы..."
+# ===================== 12. SWAYLOCK =====================
+create_swaylock() {
+    title "Настройка блокировки экрана"
 
+    cat > ~/.config/swaylock/config << 'EOF'
+daemonize
+show-failed-attempts
+clock
+screenshots
+effect-blur=15x3
+effect-vignette=0.5:0.5
+color=0c0b0a
+font=JetBrains Mono
+indicator
+indicator-radius=120
+indicator-thickness=8
+line-color=00000000
+ring-color=3a3632
+inside-color=00000000
+key-hl-color=f5efe6
+separator-color=00000000
+text-color=f5efe6
+text-caps-lock-color=""
+line-ver-color=f5efe6
+ring-ver-color=b5ada6
+inside-ver-color=00000000
+text-ver-color=f5efe6
+ring-wrong-color=8a8177
+text-wrong-color=f5efe6
+inside-wrong-color=00000000
+inside-clear-color=00000000
+text-clear-color=f5efe6
+ring-clear-color=b5ada6
+line-clear-color=00000000
+line-wrong-color=00000000
+bs-hl-color=f5efe6
+grace=2
+grace-no-mouse
+grace-no-touch
+datestr=%a, %d %b
+timestr=%H:%M
+fade-in=0.2
+EOF
+
+    cat > ~/bin/lockscreen << 'EOF'
+#!/bin/bash
+if command -v swaylock &>/dev/null; then
+    if swaylock --help 2>&1 | grep -q "effect-blur"; then
+        swaylock
+    else
+        swaylock -c 0c0b0a
+    fi
+fi
+EOF
+    chmod +x ~/bin/lockscreen
+    log "Swaylock настроен"
+}
+
+# ===================== 13. СКРИНШОТЫ =====================
+create_screenshots() {
+    title "Создание скриптов скриншотов"
+
+    cat > ~/bin/screenshot << 'EOF'
+#!/bin/bash
+# Универсальный скриншот-тул для Wayland
+
+DIR="$HOME/Pictures/Screenshots"
+mkdir -p "$DIR"
+FILE="$DIR/screenshot_$(date +'%Y-%m-%d_%H-%M-%S').png"
+
+case "$1" in
+    area)
+        grim -g "$(slurp)" "$FILE"
+        ;;
+    full)
+        grim "$FILE"
+        ;;
+    window)
+        grim -g "$(swaymsg -t get_tree | jq -r '.. | select(.focused?) | .rect | "\(.x),\(.y) \(.width)x\(.height)"')" "$FILE"
+        ;;
+    edit)
+        grim -g "$(slurp)" - | swappy -f - -o "$FILE"
+        ;;
+    *)
+        echo "Использование: $0 {area|full|window|edit}"
+        exit 1
+        ;;
+esac
+
+if [ -f "$FILE" ]; then
+    wl-copy < "$FILE"
+    notify-send "Скриншот" "Сохранён: $(basename $FILE)" -i "$FILE" -t 3000
+fi
+EOF
+    chmod +x ~/bin/screenshot
+    log "Скрипт скриншотов создан (area/full/window/edit)"
+}
+
+# ===================== 14. POWER MENU =====================
+create_power_menu() {
+    title "Создание меню питания"
+
+    cat > ~/bin/power-menu << 'EOF'
+#!/bin/bash
+# Меню питания через wofi
+
+CHOICE=$(echo -e "Заблокировать\nВыйти\nПерезагрузить\nВыключить\nЖдущий режим" | \
+    wofi --dmenu --prompt "Питание:" --width 300 --height 250)
+
+case "$CHOICE" in
+    "Заблокировать") ~/bin/lockscreen ;;
+    "Выйти") swaymsg exit ;;
+    "Перезагрузить") systemctl reboot ;;
+    "Выключить") systemctl poweroff ;;
+    "Ждущий режим") systemctl suspend && ~/bin/lockscreen ;;
+esac
+EOF
+    chmod +x ~/bin/power-menu
+    log "Power menu создан (Super+Shift+E)"
+}
+
+# ===================== 15. ОПТИМИЗАЦИЯ СИСТЕМЫ =====================
+optimize_system() {
+    title "Системные оптимизации"
+
+    # Wayland переменные окружения
+    mkdir -p ~/.config/environment.d
+    cat > ~/.config/environment.d/10-wayland.conf << 'EOF'
+# Wayland everywhere
+MOZ_ENABLE_WAYLAND=1
+QT_QPA_PLATFORM=wayland
+QT_QPA_PLATFORMTHEME=qt5ct
+QT_WAYLAND_DISABLE_WINDOWDECORATION=1
+SDL_VIDEODRIVER=wayland
+_JAVA_AWT_WM_NONREPARENTING=1
+CLUTTER_BACKEND=wayland
+GDK_BACKEND=wayland,x11
+XDG_SESSION_TYPE=wayland
+XDG_CURRENT_DESKTOP=sway
+XDG_SESSION_DESKTOP=sway
+
+# Темы
+GTK_THEME=Adwaita-dark
+EOF
+
+    # GTK темы
     mkdir -p ~/.config/gtk-3.0
-    cat > ~/.config/gtk-3.0/settings.ini << 'GTK3'
+    cat > ~/.config/gtk-3.0/settings.ini << 'EOF'
 [Settings]
 gtk-theme-name=Adwaita-dark
-gtk-icon-theme-name=Adwaita
-gtk-font-name=JetBrains Mono 11
+gtk-icon-theme-name=Papirus-Dark
+gtk-font-name=JetBrains Mono 10
 gtk-cursor-theme-name=Adwaita
 gtk-cursor-theme-size=24
 gtk-application-prefer-dark-theme=1
-GTK3
+EOF
 
     mkdir -p ~/.config/gtk-4.0
-    cat > ~/.config/gtk-4.0/settings.ini << 'GTK4'
-[Settings]
-gtk-theme-name=Adwaita-dark
-gtk-icon-theme-name=Adwaita
-gtk-font-name=JetBrains Mono 11
-gtk-application-prefer-dark-theme=1
-GTK4
+    cp ~/.config/gtk-3.0/settings.ini ~/.config/gtk-4.0/settings.ini
 
-    cat > ~/.gtkrc-2.0 << 'GTK2'
-gtk-theme-name="Adwaita-dark"
-gtk-icon-theme-name="Adwaita"
-gtk-font-name="JetBrains Mono 11"
-GTK2
+    # Включить сервисы
+    sudo systemctl enable NetworkManager 2>/dev/null || true
+    sudo systemctl enable bluetooth 2>/dev/null || true
+    systemctl --user enable pipewire pipewire-pulse wireplumber 2>/dev/null || true
 
-    mkdir -p ~/.config/environment.d
-    cat > ~/.config/environment.d/10-dark-theme.conf << 'ENVDARK'
-GTK_THEME=Adwaita-dark
-QT_STYLE_OVERRIDE=Adwaita-Dark
-QT_QPA_PLATFORMTHEME=gtk3
-ENVDARK
-
-    mkdir -p ~/.config/xsettingsd
-    cat > ~/.config/xsettingsd/xsettingsd.conf << 'XSETTINGS'
-Net/ThemeName "Adwaita-dark"
-Net/IconThemeName "Adwaita"
-Gtk/CursorThemeName "Adwaita"
-Gtk/CursorThemeSize 24
-Gtk/FontName "JetBrains Mono 11"
-Gtk/ApplicationPreferDarkTheme 1
-XSETTINGS
+    log "Оптимизации применены"
 }
 
-apply_dark_theme_now() {
-    if command -v gsettings &>/dev/null; then
-        gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark' 2>/dev/null || true
-        gsettings set org.gnome.desktop.interface gtk-theme 'Adwaita-dark' 2>/dev/null || true
-        gsettings set org.gnome.desktop.interface icon-theme 'Adwaita' 2>/dev/null || true
-    fi
-
-    for shellrc in ~/.bashrc ~/.zshrc; do
-        [ -f "$shellrc" ] || continue
-        if ! grep -q "GTK_THEME=Adwaita-dark" "$shellrc"; then
-            echo '' >> "$shellrc"
-            echo '# Тёмная тема' >> "$shellrc"
-            echo 'export GTK_THEME=Adwaita-dark' >> "$shellrc"
-            echo 'export QT_QPA_PLATFORMTHEME=gtk3' >> "$shellrc"
-            echo 'export QT_STYLE_OVERRIDE=Adwaita-Dark' >> "$shellrc"
-        fi
-    done
-}
-
-# ===================== 15. LF =====================
-create_lf_config() {
-    log "Создание LF..."
-    mkdir -p ~/.config/lf
-
-    cat > ~/.config/lf/lfrc << 'LFRC'
-set ratios 1:2:3
-set hidden true
-set ignorecase true
-set icons false
-set drawbox true
-
-map <enter> open
-map D delete
-map x cut
-map y copy
-map p paste
-map r rename
-map . set hidden!
-map R reload
-map dd delete
-map q quit
-
-cmd open ${{
-    case $(file --mime-type "$f" -bL) in
-        text/*|application/json) $EDITOR "$f";;
-        image/*) feh "$f" &;;
-        video/*|audio/*) mpv "$f" &;;
-        application/pdf) zathura "$f" &;;
-        *) xdg-open "$f" &;;
-    esac
-}}
-LFRC
-
-    cat > ~/.config/lf/colors << 'LFCOLORS'
-di      01;15
-ln      03;13
-or      04;08
-fi      00;07
-ex      01;11
-pi      00;03
-so      00;03
-do      00;03
-bd      00;06
-cd      00;06
-
-*.tar   00;03
-*.zip   00;03
-*.gz    00;03
-*.7z    00;03
-*.jpg   00;13
-*.png   00;13
-*.gif   00;13
-*.mp4   00;05
-*.mkv   00;05
-*.mp3   00;13
-*.flac  00;13
-*.pdf   01;11
-*.md    00;11
-*.txt   00;07
-*.c     01;07
-*.cpp   01;07
-*.py    01;07
-*.js    01;07
-*.rs    01;07
-*.sh    01;11
-LFCOLORS
-
-    if ! grep -q "LS_COLORS монохром" ~/.bashrc; then
-        cat >> ~/.bashrc << 'BASHRC_LS'
-# LS_COLORS монохром
-export LS_COLORS="di=01;97:ln=03;96:or=04;90:so=33:pi=33:ex=01;93:bd=36:cd=36:*.tar=33:*.zip=33:*.gz=33:*.mp3=95:*.mp4=35:*.png=95:*.jpg=95:*.pdf=01;93:*.md=93:*.c=01;37:*.py=01;37:*.sh=01;93"
-BASHRC_LS
-    fi
-}
-
-# ===================== 16. PICOM =====================
-create_picom_config() {
-    log "Создание конфигурации Picom..."
-    mkdir -p ~/.config/picom
-    cat > ~/.config/picom/picom.conf << 'PICOM'
-backend = "xrender";
-shadow = true;
-shadow-radius = 12;
-shadow-offset-x = -7;
-shadow-offset-y = -7;
-shadow-opacity = 0.6;
-shadow-color = "#0c0b0a";
-
-shadow-exclude = [
-    "class_g = 'dwm'",
-    "class_g = 'Dwm'"
-];
-
-inactive-opacity = 0.95;
-active-opacity = 1.0;
-frame-opacity = 1.0;
-
-fading = true;
-fade-in-step = 0.06;
-fade-out-step = 0.06;
-fade-delta = 5;
-
-corner-radius = 0;
-vsync = true;
-PICOM
-}
-
-# ===================== 17. DUNST =====================
-create_dunst_config() {
-    log "Настройка dunst..."
-    mkdir -p ~/.config/dunst
-    cat > ~/.config/dunst/dunstrc << 'DUNST'
-[global]
-    monitor = 0
-    follow = mouse
-    width = 350
-    height = 100
-    origin = top-right
-    offset = 20x40
-    frame_width = 2
-    frame_color = "#3a3632"
-    font = JetBrains Mono 10
-    corner_radius = 0
-
-    sticky_history = yes
-    history_length = 50
-
-    icon_position = left
-    min_icon_size = 32
-    max_icon_size = 48
-
-    progress_bar = true
-    progress_bar_height = 8
-    progress_bar_frame_width = 1
-    progress_bar_min_width = 100
-    progress_bar_max_width = 300
-
-    format = "<b>%s</b>\n%b"
-    show_age_threshold = 60
-    ellipsize = middle
-    word_wrap = yes
-
-    show_indicators = yes
-
-    mouse_left_click = do_action, close_current
-    mouse_middle_click = close_all
-    mouse_right_click = context
-
-[urgency_low]
-    background = "#0c0b0a"
-    foreground = "#b5ada6"
-    frame_color = "#3a3632"
-    timeout = 5
-
-[urgency_normal]
-    background = "#0c0b0a"
-    foreground = "#d5cdc4"
-    frame_color = "#5a544d"
-    timeout = 10
-
-[urgency_critical]
-    background = "#1c1a18"
-    foreground = "#f5efe6"
-    frame_color = "#f5efe6"
-    timeout = 0
-DUNST
-}
-
-# ===================== 18. БУФЕР ОБМЕНА =====================
-create_clipmenu_config() {
-    log "Настройка буфера обмена (clipmenu)..."
-    mkdir -p ~/bin
-
-    cat > ~/bin/clipmenu-picker << 'CLIPMENU'
-#!/bin/bash
-export PATH="/usr/local/bin:/usr/bin:/bin:$HOME/bin:$PATH"
-export CM_LAUNCHER=dmenu
-
-export DMENU_ARGS="-fn 'JetBrains Mono:size=11' -l 20 -nb '#0c0b0a' -nf '#b5ada6' -sb '#0c0b0a' -sf '#f5efe6' -p 'clipboard:'"
-
-exec clipmenu
-CLIPMENU
-
-    cat > ~/bin/clipmenu-clear << 'CLIPCLEAR'
-#!/bin/bash
-export PATH="/usr/local/bin:/usr/bin:/bin:$HOME/bin:$PATH"
-
-CONFIRM=$(echo -e "Нет, оставить\nДа, очистить историю" | dmenu \
-    -fn "JetBrains Mono:size=11" \
-    -nb "#0c0b0a" \
-    -nf "#b5ada6" \
-    -sb "#0c0b0a" \
-    -sf "#f5efe6" \
-    -p "Очистить историю буфера?")
-
-if [[ "$CONFIRM" == *"Да"* ]]; then
-    clipdel -d ".*"
-    notify-send "Буфер обмена" "История буфера очищена!" -i edit-clear
-fi
-CLIPCLEAR
-
-    chmod +x ~/bin/clipmenu-picker ~/bin/clipmenu-clear
-
-    mkdir -p ~/.config/clipmenu
-    cat > ~/.config/clipmenu/config << 'CLIPMENUCFG'
-export CM_LAUNCHER=dmenu
-export CM_HISTLENGTH=200
-export CM_MAX_CLIPS=1000
-export CM_IGNORE_WINDOW="^(KeePassXC|Bitwarden)"
-CLIPMENUCFG
-
-    log "Clipmenu настроен (Super+V — история, Super+Shift+V — очистка)"
-}
-
-# ===================== 19. ЦЕНТР УВЕДОМЛЕНИЙ (ДОБАВЛЕНА ОЧИСТКА ИСТОРИИ) =====================
-create_notification_center() {
-    log "Создание центра уведомлений..."
-    mkdir -p ~/bin
-
-    cat > ~/bin/notification-center << 'NOTIFCENTER'
-#!/bin/bash
-export PATH="/usr/local/bin:/usr/bin:/bin:$HOME/bin:$PATH"
-
-if ! command -v dunstctl &>/dev/null; then
-    notify-send "Ошибка" "dunstctl не найден" -u critical
-    exit 1
-fi
-
-COUNT=$(dunstctl count history 2>/dev/null | head -1)
-WAITING=$(dunstctl count waiting 2>/dev/null | head -1)
-DISPLAYED=$(dunstctl count displayed 2>/dev/null | head -1)
-
-MENU=""
-MENU+="  История: ${COUNT:-0} | Показано: ${DISPLAYED:-0} | Ожидает: ${WAITING:-0}\n"
-MENU+="─────────────────────────────────\n"
-MENU+="  Показать последнее уведомление\n"
-MENU+="  Закрыть текущее\n"
-MENU+="  Закрыть все\n"
-MENU+="  Очистить всю историю\n"
-MENU+="  Открыть контекстное меню\n"
-MENU+="  Пауза уведомлений\n"
-MENU+="  Возобновить уведомления\n"
-
-CHOICE=$(echo -e "$MENU" | dmenu \
-    -fn "JetBrains Mono:size=11" \
-    -l 11 \
-    -nb "#0c0b0a" \
-    -nf "#b5ada6" \
-    -sb "#0c0b0a" \
-    -sf "#f5efe6" \
-    -p "notifications:")
-
-case "$CHOICE" in
-    *"Показать последнее"*)
-        dunstctl history-pop
-        ;;
-    *"Закрыть текущее"*)
-        dunstctl close
-        ;;
-    *"Закрыть все"*)
-        dunstctl close-all
-        ;;
-    *"Очистить всю историю"*)
-        dunstctl history-clear
-        notify-send "Dunst" "История уведомлений полностью очищена" 2>/dev/null
-        ;;
-    *"Открыть контекстное"*)
-        dunstctl context
-        ;;
-    *"Пауза"*)
-        dunstctl set-paused true
-        notify-send "Dunst" "Уведомления приостановлены" 2>/dev/null
-        ;;
-    *"Возобновить"*)
-        dunstctl set-paused false
-        notify-send "Dunst" "Уведомления возобновлены" 2>/dev/null
-        ;;
-esac
-NOTIFCENTER
-
-    chmod +x ~/bin/notification-center
-    log "Центр уведомлений создан (Super+~ — открыть)"
-}
-
-# ===================== 20. DWM-SESSION =====================
-create_dwm_session() {
-    log "Создание dwm-session..."
-
-    sudo tee /usr/local/bin/dwm-session > /dev/null << 'DWMSESSION'
-#!/bin/bash
-
-export DISPLAY="${DISPLAY:-:0}"
-export XDG_SESSION_TYPE="x11"
-export XDG_CURRENT_DESKTOP="DWM"
-export XDG_SESSION_DESKTOP="dwm"
-export PATH="$HOME/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
-
-export GTK_THEME="Adwaita-dark"
-export QT_QPA_PLATFORMTHEME="gtk3"
-export QT_STYLE_OVERRIDE="Adwaita-Dark"
-
-export LANG="ru_RU.UTF-8"
-export LC_ALL="ru_RU.UTF-8"
-
-LOG="$HOME/.dwm-session.log"
-echo "=== $(date) — DWM session started ===" > "$LOG"
-
-if command -v dbus-update-activation-environment &>/dev/null; then
-    dbus-update-activation-environment --systemd DISPLAY XAUTHORITY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP
-    echo "D-Bus environment updated" >> "$LOG"
-fi
-
-setxkbmap -layout us,ru -option grp:win_space_toggle &
-echo "Keyboard layout US/RU initialized (Switch with Win+Space)" >> "$LOG"
-
-# ─── УСТАНОВКА ОБОЕВ (ПРОСТАЯ НАСТРОЙКА ПУТИ) ───
-WALLPAPER="$HOME/Pictures/wallpaper.png"
-
-if [ -f "$WALLPAPER" ] && command -v feh &>/dev/null; then
-    feh --bg-fill "$WALLPAPER" &
-    echo "Wallpaper loaded from: $WALLPAPER" >> "$LOG"
-else
-    xsetroot -solid "#0c0b0a" &
-    echo "Wallpaper file $WALLPAPER not found. Solid background applied." >> "$LOG"
-fi
-
-xsetroot -cursor_name left_ptr &
-
-xsettingsd &
-sleep 0.2
-
-pkill -x picom 2>/dev/null
-picom --config "$HOME/.config/picom/picom.conf" -b 2>>"$LOG" &
-
-pkill -x dunst 2>/dev/null
-dunst 2>>"$LOG" &
-echo "Dunst restarted" >> "$LOG"
-
-pkill -f clipmenud 2>/dev/null
-export CM_LAUNCHER=dmenu
-clipmenud >> "$LOG" 2>&1 &
-echo "clipmenud restarted" >> "$LOG"
-
-lxsession 2>>"$LOG" &
-
-if [ -x "$HOME/bin/dwm-statusbar.sh" ]; then
-    "$HOME/bin/dwm-statusbar.sh" >> "$LOG" 2>&1 &
-fi
-
-(
-    sleep 2
-    nm-applet 2>>"$LOG" &
-    blueman-applet 2>>"$LOG" &
-    echo "Applets docked into built-in systray" >> "$LOG"
-) &
-
-if command -v xidlehook &>/dev/null; then
-    xidlehook \
-        --not-when-fullscreen \
-        --not-when-audio \
-        --timer 600 "$HOME/bin/lockscreen" '' 2>>"$LOG" &
-fi
-
-if [ -x "$HOME/bin/nightshift" ]; then
-    "$HOME/bin/nightshift" 2>>"$LOG" &
-fi
-
-echo "Starting DWM..." >> "$LOG"
-exec dwm
-DWMSESSION
-
-    sudo chmod +x /usr/local/bin/dwm-session
-    log "dwm-session создан и настроен!"
-}
-
-# ===================== 21. СЕССИЯ =====================
-create_session() {
-    log "Создание сессии для ly..."
-    sudo mkdir -p /usr/share/xsessions
-    sudo tee /usr/share/xsessions/dwm.desktop > /dev/null << 'SESSION'
-[Desktop Entry]
-Encoding=UTF-8
-Name=DWM
-Comment=Dynamic Window Manager
-Exec=/usr/local/bin/dwm-session
-Icon=dwm
-Type=XSession
-SESSION
-
-    cat > ~/.xinitrc << 'XINITRC'
-#!/bin/sh
-exec /usr/local/bin/dwm-session
-XINITRC
-    chmod +x ~/.xinitrc
-}
-
-# ===================== 22. ШПАРГАЛКА =====================
+# ===================== 16. ШПАРГАЛКА =====================
 create_cheatsheet() {
-    cat > ~/dwm-keybinds.txt << 'CHEAT'
+    cat > ~/sway-keybinds.txt << 'EOF'
 ╔══════════════════════════════════════════════════════════════╗
-║                    DWM KEYBINDINGS v13.1                     ║
+║              SWAY KEYBINDINGS — ШПАРГАЛКА                    ║
 ╠══════════════════════════════════════════════════════════════╣
-║  ЗАПУСК ПРОГРАММ                                             ║
-║  Super + Enter        — Терминал                             ║
-║  Super + D            — dmenu (все программы)                ║
-║  Super + W            — Zen Browser                          ║
-║  Super + E            — LF файловый менеджер                 ║
-║  Super + T            — Telegram                             ║
-║  Super + Shift + S    — Steam                                ║
-║  Super + Shift + L    — Заблокировать экран                  ║
-║  Super + Space        — Смена раскладки (US/RU)              ║
+║ ПРОГРАММЫ                                                    ║
+║   Super + Enter        Терминал (Alacritty)                  ║
+║   Super + D            Меню приложений (Wofi)                ║
+║   Super + W            Zen Browser                           ║
+║   Super + E            Файловый менеджер (Thunar)            ║
+║   Super + T            Telegram                              ║
+║   Super + Shift + S    Steam                                 ║
+║   Super + Space        Переключить раскладку US/RU           ║
 ║                                                              ║
-║  БУФЕР ОБМЕНА (clipmenu)                                     ║
-║  Super + V            — Открыть историю буфера обмена        ║
-║  Super + Shift + V    — Очистить историю буфера обмена       ║
+║ ОКНА                                                         ║
+║   Super + H/J/K/L      Фокус влево/вниз/вверх/вправо         ║
+║   Super + Shift + HJKL Переместить окно                      ║
+║   Super + F            Полный экран                          ║
+║   Super + Shift+Space  Плавающее окно                        ║
+║   Super + Shift + Q    Закрыть окно                          ║
+║   Super + R            Режим resize (потом HJKL)             ║
+║   Super + B / V        Разделение горизонт./вертик.          ║
+║   Super + S / W / G    Stack / Tab / Toggle split            ║
 ║                                                              ║
-║  УВЕДОМЛЕНИЯ (dunst)                                         ║
-║  Super + `            — Центр уведомлений (тильда/ё)         ║
-║  Super + X            — Закрыть текущее уведомление          ║
-║  Super + Shift + X    — Закрыть ВСЕ уведомления              ║
-║  ЛКМ по бару          — Открыть центр уведомлений            ║
-║  ПКМ по бару          — Открыть буфер обмена                 ║
+║ РАБОЧИЕ СТОЛЫ                                                ║
+║   Super + 1..9         Перейти на стол                       ║
+║   Super + Shift + 1..9 Перенести окно                        ║
+║   Super + Tab          Предыдущий стол                       ║
 ║                                                              ║
-║  СКРИНШОТЫ                                                   ║
-║  Print                — Скриншот выделенной области          ║
-║  Shift + Print        — Скриншот всего экрана                ║
+║ СКРИНШОТЫ                                                    ║
+║   Print                Область → буфер + файл                ║
+║   Shift + Print        Весь экран                            ║
+║   Ctrl + Print         Активное окно                         ║
+║   Super + Print        Область + редактор (Swappy)           ║
 ║                                                              ║
-║  ОКНА                                                        ║
-║  Super + J/K          — Переключение между окнами            ║
-║  Super + H/L          — Изменение размера master             ║
-║  Super + Shift+Enter  — Сделать окно главным                 ║
-║  Super + Shift + Q    — Закрыть окно                         ║
-║  Super + ;            — Tile (плитка)                        ║
-║  Super + Shift + ;    — Float (плавающие)                    ║
-║  Super + M            — Monocle (один экран)                 ║
-║  Super + N            — Переключить раскладку                ║
-║  Super + Shift + N    — Плавающее окно                       ║
-║  Super + B            — Скрыть панель                        ║
+║ БУФЕР / УВЕДОМЛЕНИЯ                                          ║
+║   Super + Shift + V    История буфера (cliphist)             ║
+║   Super + N            Скрыть текущее уведомление            ║
+║   Super + Shift + N    Скрыть ВСЕ уведомления                ║
+║   Super + `            Восстановить последнее уведомление    ║
 ║                                                              ║
-║  РАБОЧИЕ СТОЛЫ                                               ║
-║  Super + 1..9         — Переключить                          ║
-║  Super + Shift + 1..9 — Перенести окно                       ║
+║ СИСТЕМА                                                      ║
+║   Super + Shift + L    Заблокировать                         ║
+║   Super + Shift + E    Меню питания                          ║
+║   Super + Shift + T    Переключатель тем                     ║
+║   Super + Shift + C    Перезагрузить Sway                    ║
+║   Super + Y            Скрыть/показать Waybar                ║
 ║                                                              ║
-║  ВЫХОД                                                       ║
-║  Ctrl+Super+Shift+Q   — Выйти из DWM                         ║
+║ ТЕМЫ ДОСТУПНЫ                                                ║
+║   monochrome | catppuccin | tokyonight |                     ║
+║   gruvbox | nord | dracula                                   ║
 ╚══════════════════════════════════════════════════════════════╝
-CHEAT
+EOF
+    log "Шпаргалка сохранена в ~/sway-keybinds.txt"
 }
 
-# ===================== 23. ДИАГНОСТИКА =====================
+# ===================== 17. ДИАГНОСТИКА =====================
 run_diagnostics() {
-    echo ""
-    echo -e "${CYAN}═══════════ ДИАГНОСТИКА ═══════════${NC}"
-
-    [ -x /usr/local/bin/dwm-session ] && log "✓ dwm-session" || err "✗ dwm-session"
-    [ -x ~/bin/dwm-statusbar.sh ] && log "✓ Статус-бар" || warn "✗ Статус-бар"
-    [ -x ~/bin/clipmenu-picker ] && log "✓ Clipmenu-picker" || warn "✗ Clipmenu"
-    [ -x ~/bin/clipmenu-clear ] && log "✓ Clipmenu-clear" || warn "✗ Clipmenu-clear"
-    [ -x ~/bin/notification-center ] && log "✓ Центр уведомлений" || warn "✗ Центр уведомлений"
-
-    command -v clipmenu &>/dev/null && log "✓ clipmenu установлен" || err "✗ clipmenu НЕ установлен"
-    command -v clipmenud &>/dev/null && log "✓ clipmenud (демон) готов" || warn "✗ clipmenud не найден"
-    command -v dunstctl &>/dev/null && log "✓ dunstctl (управление уведомлениями)" || warn "✗ dunstctl не найден"
-
-    log "✓ Трей и отступы (gaps) успешно скомпилированы в DWM"
-
-    echo -e "${CYAN}═══════════════════════════════════${NC}"
-    echo ""
+    title "Диагностика"
+    
+    command -v sway &>/dev/null && log "✓ Sway" || err "✗ Sway не найден"
+    command -v waybar &>/dev/null && log "✓ Waybar" || warn "✗ Waybar"
+    command -v wofi &>/dev/null && log "✓ Wofi" || warn "✗ Wofi"
+    command -v mako &>/dev/null && log "✓ Mako" || warn "✗ Mako"
+    command -v grim &>/dev/null && log "✓ Grim" || warn "✗ Grim"
+    command -v slurp &>/dev/null && log "✓ Slurp" || warn "✗ Slurp"
+    command -v swaylock &>/dev/null && log "✓ Swaylock" || warn "✗ Swaylock"
+    command -v cliphist &>/dev/null && log "✓ Cliphist" || warn "✗ Cliphist"
+    [ -x ~/bin/theme-switcher ] && log "✓ Переключатель тем" || warn "✗ Переключатель тем"
+    [ -x ~/bin/power-menu ] && log "✓ Power menu" || warn "✗ Power menu"
+    [ -x ~/bin/screenshot ] && log "✓ Screenshot tool" || warn "✗ Screenshot"
 }
 
 # ===================== MAIN =====================
 main() {
-    echo ""
-    echo -e "${CYAN}╔══════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║   DWM Warm Monochrome v13.1                 ║${NC}"
-    echo -e "${CYAN}║   Нативный Трей + Gaps + Однородный Бар      ║${NC}"
-    echo -e "${CYAN}╚══════════════════════════════════════════════╝${NC}"
-    echo ""
+    echo -e "${BOLD}${CYAN}"
+    echo "╔══════════════════════════════════════════════╗"
+    echo "║   SWAY — Performance Edition v1.0            ║"
+    echo "║   6 тем + Waybar + Максимум удобства         ║"
+    echo "╚══════════════════════════════════════════════╝"
+    echo -e "${NC}"
 
     install_packages
     install_yay
     install_aur_packages
-
-    build_dwm
-    build_dmenu
-
-    create_lockscreen
-    create_screenshot_script
-    create_telegram_launcher
-    create_alacritty_config
-    create_mouse_config
-    create_statusbar
-    create_gtk_theme
-    apply_dark_theme_now
-    create_lf_config
-    create_nightshift
-    create_picom_config
-    create_dunst_config
-    create_clipmenu_config
-    create_notification_center
-    create_dwm_session
-    create_session
+    create_dirs
+    create_themes
+    create_theme_switcher
+    create_sway_config
+    create_waybar
+    create_alacritty
+    create_wofi
+    create_mako
+    create_swaylock
+    create_screenshots
+    create_power_menu
+    optimize_system
     create_cheatsheet
-
     run_diagnostics
-
-    # Удаляем временную папку сборки
-    rm -rf /tmp/suckless-build
 
     echo ""
     echo -e "${GREEN}╔══════════════════════════════════════════════╗${NC}"
     echo -e "${GREEN}║          УСТАНОВКА ЗАВЕРШЕНА!                ║${NC}"
     echo -e "${GREEN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
-    info "Улучшения v13.1:"
-    echo "  ✓ Удален вывод CPU и RAM в статус-баре."
-    echo "  ✓ В Центр Уведомлений добавлен пункт полной очистки истории Dunst."
-    echo "  ✓ Трей нативно встроен в бар DWM."
-    echo "  ✓ Отступы окон (Gaps) и 4px жирная обводка активны."
-    echo "  ✓ Буфер обмена чистится через Super+Shift+V."
-    echo "  ✓ Фон панели монолитный глубокий черный."
-    echo "  ✓ Папка suckless теперь удаляется автоматически, а статус-бар перенесен в ~/bin/."
-    echo "  ✓ Расположение обоев по умолчанию изменено на ~/Pictures/wallpaper.png"
+    info "Что дальше:"
+    echo "  1. Выйдите из системы"
+    echo "  2. В экране входа выберите сессию 'Sway'"
+    echo "  3. Войдите — Sway запустится с монохромной темой"
     echo ""
-    warn "Для входа в полностью настроенное окружение выполните: reboot"
+    info "Смена темы: Super + Shift + T"
+    info "Шпаргалка: cat ~/sway-keybinds.txt"
+    echo ""
+    warn "Обои: положите картинку в ~/Pictures/wallpaper.png"
+    warn "    и раскомментируйте строку 'output * bg' в ~/.config/sway/config"
     echo ""
 }
 
