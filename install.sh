@@ -1,6 +1,6 @@
 #!/bin/bash
 # install.sh — DWM окружение на CachyOS/Arch
-# Версия 13.0 — Нативный Трей, Gaps, 4px обводка, однородный бар, точный CPU, без папки suckless в ~
+# Версия 13.1 — Нативный Трей, Gaps, 4px обводка, однородный бар, без CPU и RAM, без папки suckless в ~
 
 set -e
 
@@ -172,7 +172,7 @@ build_dwm() {
     sed -i 's/LIBS = -L${X11LIB} -lX11 ${XINERAMALIBS} ${FREETYPELIBS}/LIBS = -L${X11LIB} -lX11 ${XINERAMALIBS} ${FREETYPELIBS} -lX11-xcb -lxcb -lxcb-res/g' config.mk
 
     cat > config.h << 'DWMCONFIG'
-/* DWM config.h — v13.0 (Warm Monochrome) */
+/* DWM config.h — v13.1 (Warm Monochrome) */
 
 static const unsigned int borderpx       = 4;   /* Четкая жирная обводка 4px */
 static const unsigned int snap           = 16;
@@ -673,7 +673,7 @@ NSRESET
     fi
 }
 
-# ===================== 13. СТАТУС-БАР =====================
+# ===================== 13. СТАТУС-БАР (БЕЗ CPU И RAM) =====================
 create_statusbar() {
     log "Создание статус-бара..."
     mkdir -p ~/bin
@@ -731,29 +731,12 @@ while true; do
         fi
     fi
 
-    # RAM
-    RAM=""
-    if [ -f /proc/meminfo ]; then
-        MEM_TOTAL=$(awk '/MemTotal:/ {print $2}' /proc/meminfo)
-        MEM_FREE=$(awk '/MemAvailable:/ {print $2}' /proc/meminfo)
-        MEM_USED=$(( (MEM_TOTAL - MEM_FREE) / 1024 ))
-        if [ $MEM_USED -ge 1024 ]; then
-            RAM="$(echo "scale=1; $MEM_USED / 1024" | bc)G"
-        else
-            RAM="${MEM_USED}M"
-        fi
-    fi
-
-    # CPU (Точный расчет в пределах 0-100%)
-    CPU=$(ux=$(grep '^cpu ' /proc/stat); sleep 0.2; uy=$(grep '^cpu ' /proc/stat); echo "$ux $uy" | awk '{t1=$2+$3+$4+$5+$6+$7+$8+$9; i1=$5; t2=$11+$12+$13+$14+$15+$16+$17+$18; i2=$14; if (t2-t1 > 0) printf "%d", 100*(1-(i2-i1)/(t2-t1)); else printf "0"}')
-
-    [ -n "$CPU" ] || CPU="0"
-    [ "$CPU" -gt 100 ] && CPU=100
-    [ "$CPU" -lt 0 ] && CPU=0
-
-    STATUS=" ${NOTIF}${VOL}${BAT}CPU ${CPU}% | RAM ${RAM} | ${DATE} ${TIME} "
+    # Вывод финальной строки без показателей CPU и RAM
+    STATUS=" ${NOTIF}${VOL}${BAT}${DATE} ${TIME} "
     xsetroot -name "$STATUS"
-    sleep 1.8
+    
+    # Спим чуть дольше (4с), экономя батарею ноутбука
+    sleep 4
 done
 STATUSBAR
 
@@ -1042,7 +1025,7 @@ CLIPMENUCFG
     log "Clipmenu настроен (Super+V — история, Super+Shift+V — очистка)"
 }
 
-# ===================== 19. ЦЕНТР УВЕДОМЛЕНИЙ =====================
+# ===================== 19. ЦЕНТР УВЕДОМЛЕНИЙ (ДОБАВЛЕНА ОЧИСТКА ИСТОРИИ) =====================
 create_notification_center() {
     log "Создание центра уведомлений..."
     mkdir -p ~/bin
@@ -1066,13 +1049,14 @@ MENU+="────────────────────────�
 MENU+="  Показать последнее уведомление\n"
 MENU+="  Закрыть текущее\n"
 MENU+="  Закрыть все\n"
+MENU+="  Очистить всю историю\n"
 MENU+="  Открыть контекстное меню\n"
 MENU+="  Пауза уведомлений\n"
 MENU+="  Возобновить уведомления\n"
 
 CHOICE=$(echo -e "$MENU" | dmenu \
     -fn "JetBrains Mono:size=11" \
-    -l 10 \
+    -l 11 \
     -nb "#0c0b0a" \
     -nf "#b5ada6" \
     -sb "#0c0b0a" \
@@ -1088,6 +1072,10 @@ case "$CHOICE" in
         ;;
     *"Закрыть все"*)
         dunstctl close-all
+        ;;
+    *"Очистить всю историю"*)
+        dunstctl history-clear
+        notify-send "Dunst" "История уведомлений полностью очищена" 2>/dev/null
         ;;
     *"Открыть контекстное"*)
         dunstctl context
@@ -1223,7 +1211,7 @@ XINITRC
 create_cheatsheet() {
     cat > ~/dwm-keybinds.txt << 'CHEAT'
 ╔══════════════════════════════════════════════════════════════╗
-║                    DWM KEYBINDINGS v12.9                     ║
+║                    DWM KEYBINDINGS v13.1                     ║
 ╠══════════════════════════════════════════════════════════════╣
 ║  ЗАПУСК ПРОГРАММ                                             ║
 ║  Super + Enter        — Терминал                             ║
@@ -1297,7 +1285,7 @@ run_diagnostics() {
 main() {
     echo ""
     echo -e "${CYAN}╔══════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║   DWM Warm Monochrome v12.9                 ║${NC}"
+    echo -e "${CYAN}║   DWM Warm Monochrome v13.1                 ║${NC}"
     echo -e "${CYAN}║   Нативный Трей + Gaps + Однородный Бар      ║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
@@ -1337,10 +1325,11 @@ main() {
     echo -e "${GREEN}║          УСТАНОВКА ЗАВЕРШЕНА!                ║${NC}"
     echo -e "${GREEN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
-    info "Улучшения v12.9:"
+    info "Улучшения v13.1:"
+    echo "  ✓ Удален вывод CPU и RAM в статус-баре."
+    echo "  ✓ В Центр Уведомлений добавлен пункт полной очистки истории Dunst."
     echo "  ✓ Трей нативно встроен в бар DWM."
     echo "  ✓ Отступы окон (Gaps) и 4px жирная обводка активны."
-    echo "  ✓ Загрузка CPU считается строго в диапазоне 0-100%."
     echo "  ✓ Буфер обмена чистится через Super+Shift+V."
     echo "  ✓ Фон панели монолитный глубокий черный."
     echo "  ✓ Папка suckless теперь удаляется автоматически, а статус-бар перенесен в ~/bin/."
