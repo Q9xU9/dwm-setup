@@ -1,6 +1,6 @@
 #!/bin/bash
 # install.sh — DWM окружение на CachyOS/Arch
-# Версия 12.9 — Полный стабильный билд: Трей, Gaps, 4px обводка, однородный бар, точный CPU, Clipmenu clear
+# Версия 13.0 — Нативный Трей, Gaps, 4px обводка, однородный бар, точный CPU, без папки suckless в ~
 
 set -e
 
@@ -136,8 +136,8 @@ download_patch_with_fallback() {
 # ===================== 5. СБОРКА DWM =====================
 build_dwm() {
     log "Загрузка официального чистого архива DWM 6.4..."
-    mkdir -p ~/suckless
-    cd ~/suckless
+    mkdir -p /tmp/suckless-build
+    cd /tmp/suckless-build
     rm -rf dwm dwm-6.4 dwm-6.4.tar.gz
 
     wget --timeout=15 -q "https://dl.suckless.org/dwm/dwm-6.4.tar.gz" || \
@@ -172,7 +172,7 @@ build_dwm() {
     sed -i 's/LIBS = -L${X11LIB} -lX11 ${XINERAMALIBS} ${FREETYPELIBS}/LIBS = -L${X11LIB} -lX11 ${XINERAMALIBS} ${FREETYPELIBS} -lX11-xcb -lxcb -lxcb-res/g' config.mk
 
     cat > config.h << 'DWMCONFIG'
-/* DWM config.h — v12.9 (Warm Monochrome) */
+/* DWM config.h — v13.0 (Warm Monochrome) */
 
 static const unsigned int borderpx       = 4;   /* Четкая жирная обводка 4px */
 static const unsigned int snap           = 16;
@@ -342,14 +342,14 @@ DWMCONFIG
 
     sudo make clean install
     log "DWM успешно собран и установлен!"
-    cd ~/suckless
+    cd ~
 }
 
 # ===================== 6. СБОРКА DMENU =====================
 build_dmenu() {
     log "Загрузка и сборка dmenu..."
-    mkdir -p ~/suckless
-    cd ~/suckless
+    mkdir -p /tmp/suckless-build
+    cd /tmp/suckless-build
     rm -rf dmenu dmenu-5.3 dmenu-5.3.tar.gz
 
     wget --timeout=15 -q "https://dl.suckless.org/tools/dmenu-5.3.tar.gz" || \
@@ -375,7 +375,7 @@ DMENUCONFIG
 
     sudo make clean install
     log "dmenu установлен!"
-    cd ~/suckless
+    cd ~
 }
 
 # ===================== 7. LOCKSCREEN =====================
@@ -676,9 +676,9 @@ NSRESET
 # ===================== 13. СТАТУС-БАР =====================
 create_statusbar() {
     log "Создание статус-бара..."
-    mkdir -p ~/suckless
+    mkdir -p ~/bin
 
-    cat > ~/suckless/dwm-statusbar.sh << 'STATUSBAR'
+    cat > ~/bin/dwm-statusbar.sh << 'STATUSBAR'
 #!/bin/bash
 export PATH="/usr/local/bin:/usr/bin:/bin:$HOME/bin:$PATH"
 export DISPLAY="${DISPLAY:-:0}"
@@ -757,7 +757,7 @@ while true; do
 done
 STATUSBAR
 
-    chmod +x ~/suckless/dwm-statusbar.sh
+    chmod +x ~/bin/dwm-statusbar.sh
 }
 
 # ===================== 14. GTK ТЕМА =====================
@@ -1139,7 +1139,7 @@ setxkbmap -layout us,ru -option grp:win_space_toggle &
 echo "Keyboard layout US/RU initialized (Switch with Win+Space)" >> "$LOG"
 
 # ─── УСТАНОВКА ОБОЕВ (ПРОСТАЯ НАСТРОЙКА ПУТИ) ───
-WALLPAPER="$HOME/Pictures/Wallpapers/wallpaper.png"
+WALLPAPER="$HOME/Pictures/wallpaper.png"
 
 if [ -f "$WALLPAPER" ] && command -v feh &>/dev/null; then
     feh --bg-fill "$WALLPAPER" &
@@ -1168,8 +1168,8 @@ echo "clipmenud restarted" >> "$LOG"
 
 lxsession 2>>"$LOG" &
 
-if [ -x "$HOME/suckless/dwm-statusbar.sh" ]; then
-    "$HOME/suckless/dwm-statusbar.sh" >> "$LOG" 2>&1 &
+if [ -x "$HOME/bin/dwm-statusbar.sh" ]; then
+    "$HOME/bin/dwm-statusbar.sh" >> "$LOG" 2>&1 &
 fi
 
 (
@@ -1278,7 +1278,7 @@ run_diagnostics() {
     echo -e "${CYAN}═══════════ ДИАГНОСТИКА ═══════════${NC}"
 
     [ -x /usr/local/bin/dwm-session ] && log "✓ dwm-session" || err "✗ dwm-session"
-    [ -x ~/suckless/dwm-statusbar.sh ] && log "✓ Статус-бар" || warn "✗ Статус-бар"
+    [ -x ~/bin/dwm-statusbar.sh ] && log "✓ Статус-бар" || warn "✗ Статус-бар"
     [ -x ~/bin/clipmenu-picker ] && log "✓ Clipmenu-picker" || warn "✗ Clipmenu"
     [ -x ~/bin/clipmenu-clear ] && log "✓ Clipmenu-clear" || warn "✗ Clipmenu-clear"
     [ -x ~/bin/notification-center ] && log "✓ Центр уведомлений" || warn "✗ Центр уведомлений"
@@ -1329,17 +1329,22 @@ main() {
 
     run_diagnostics
 
+    # Удаляем временную папку сборки
+    rm -rf /tmp/suckless-build
+
     echo ""
     echo -e "${GREEN}╔══════════════════════════════════════════════╗${NC}"
     echo -e "${GREEN}║          УСТАНОВКА ЗАВЕРШЕНА!                ║${NC}"
     echo -e "${GREEN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
-    info "Все изменения применены:"
+    info "Улучшения v12.9:"
     echo "  ✓ Трей нативно встроен в бар DWM."
     echo "  ✓ Отступы окон (Gaps) и 4px жирная обводка активны."
     echo "  ✓ Загрузка CPU считается строго в диапазоне 0-100%."
     echo "  ✓ Буфер обмена чистится через Super+Shift+V."
     echo "  ✓ Фон панели монолитный глубокий черный."
+    echo "  ✓ Папка suckless теперь удаляется автоматически, а статус-бар перенесен в ~/bin/."
+    echo "  ✓ Расположение обоев по умолчанию изменено на ~/Pictures/wallpaper.png"
     echo ""
     warn "Для входа в полностью настроенное окружение выполните: reboot"
     echo ""
