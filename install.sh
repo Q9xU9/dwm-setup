@@ -1,6 +1,6 @@
 #!/bin/bash
 # install.sh — DWM окружение на CachyOS/Arch
-# Версия 11.4 — Поддержка ly (TUI Display Manager)
+# Версия 11.5 — Трей (trayer), буфер обмена (clipmenu), центр уведомлений
 
 set -e
 
@@ -47,7 +47,9 @@ install_packages() {
         xsettingsd \
         gnome-themes-extra adwaita-icon-theme \
         gsettings-desktop-schemas dconf \
-        dbus
+        dbus \
+        trayer \
+        clipmenu
 }
 
 # ===================== YAY =====================
@@ -79,7 +81,7 @@ install_aur_packages() {
     if yay -S --needed --noconfirm i3lock-color 2>/dev/null; then
         log "i3lock-color установлен!"
     else
-        warn "i3lock-color не собрался, ставим обычный i3lock..."
+        warn "Ставим обычный i3lock..."
         sudo pacman -S --needed --noconfirm i3lock
     fi
 
@@ -160,13 +162,16 @@ build_dwm() {
             SYSTRAY_APPLIED=1
             log "Патч systray применён!"
         else
-            warn "Патч systray не применился."
+            warn "Патч systray не применился — используем trayer как fallback"
             git checkout -- . 2>/dev/null || true
         fi
     fi
 
+    # Сохраняем флаг для .dwm-session
+    echo "$SYSTRAY_APPLIED" > ~/.dwm-systray-status
+
     cat > config.h << 'DWMCONFIG'
-/* DWM config.h — Тёплый монохром v11.4 */
+/* DWM config.h — v11.5 */
 
 static const unsigned int borderpx       = 2;
 static const unsigned int snap           = 16;
@@ -204,6 +209,7 @@ static const Rule rules[] = {
     { "telegram-desktop", NULL, NULL, 1 << 2, 0, -1 },
     { "Gimp",             NULL, NULL, 0,      1, -1 },
     { "pavucontrol",      NULL, NULL, 0,      1, -1 },
+    { "trayer",           NULL, NULL, 0,      1, -1 },
 };
 
 static const float mfact     = 0.55;
@@ -238,6 +244,10 @@ static const char *steamcmd[]        = { "steam", NULL };
 static const char *screenshot[]      = { "sh", "-c", "$HOME/bin/screenshot", NULL };
 static const char *screenshotfull[]  = { "sh", "-c", "$HOME/bin/screenshot-full", NULL };
 static const char *lockcmd[]         = { "sh", "-c", "$HOME/bin/lockscreen", NULL };
+static const char *clipcmd[]         = { "sh", "-c", "$HOME/bin/clipmenu-picker", NULL };
+static const char *noticmd[]         = { "sh", "-c", "$HOME/bin/notification-center", NULL };
+static const char *notidismiss[]     = { "dunstctl", "close", NULL };
+static const char *notidismissall[]  = { "dunstctl", "close-all", NULL };
 
 static const char *vol_up[]   = { "pactl", "set-sink-volume", "@DEFAULT_SINK@", "+5%", NULL };
 static const char *vol_down[] = { "pactl", "set-sink-volume", "@DEFAULT_SINK@", "-5%", NULL };
@@ -248,6 +258,7 @@ static const char *bri_down[] = { "brightnessctl", "set", "10%-", NULL };
 #include <X11/XF86keysym.h>
 
 static const Key keys[] = {
+    /* ─── Программы ─── */
     { MODKEY,                       XK_d,      spawn,          {.v = dmenucmd } },
     { MODKEY,                       XK_Return, spawn,          {.v = termcmd } },
     { MODKEY,                       XK_w,      spawn,          {.v = browsercmd } },
@@ -258,12 +269,20 @@ static const Key keys[] = {
     { 0,                            XK_Print,  spawn,          {.v = screenshot } },
     { ShiftMask,                    XK_Print,  spawn,          {.v = screenshotfull } },
 
+    /* ─── БУФЕР ОБМЕНА и УВЕДОМЛЕНИЯ ─── */
+    { MODKEY,                       XK_v,      spawn,          {.v = clipcmd } },
+    { MODKEY,                       XK_grave,  spawn,          {.v = noticmd } },
+    { MODKEY,                       XK_x,      spawn,          {.v = notidismiss } },
+    { MODKEY|ShiftMask,             XK_x,      spawn,          {.v = notidismissall } },
+
+    /* ─── Мультимедиа ─── */
     { 0, XF86XK_AudioRaiseVolume, spawn, {.v = vol_up } },
     { 0, XF86XK_AudioLowerVolume, spawn, {.v = vol_down } },
     { 0, XF86XK_AudioMute,       spawn, {.v = vol_mute } },
     { 0, XF86XK_MonBrightnessUp,   spawn, {.v = bri_up } },
     { 0, XF86XK_MonBrightnessDown, spawn, {.v = bri_down } },
 
+    /* ─── Окна ─── */
     { MODKEY,           XK_j,      focusstack,     {.i = +1 } },
     { MODKEY,           XK_k,      focusstack,     {.i = -1 } },
     { MODKEY,           XK_h,      setmfact,       {.f = -0.05} },
@@ -302,6 +321,8 @@ static const Button buttons[] = {
     { ClkLtSymbol,   0,      Button3, setlayout,      {.v = &layouts[2]} },
     { ClkWinTitle,   0,      Button2, zoom,           {0} },
     { ClkStatusText, 0,      Button2, spawn,          {.v = termcmd } },
+    { ClkStatusText, 0,      Button1, spawn,          {.v = noticmd } },
+    { ClkStatusText, 0,      Button3, spawn,          {.v = clipcmd } },
     { ClkClientWin,  MODKEY, Button1, movemouse,      {0} },
     { ClkClientWin,  MODKEY, Button2, togglefloating, {0} },
     { ClkClientWin,  MODKEY, Button3, resizemouse,    {0} },
@@ -353,9 +374,116 @@ DMENUCONFIG
     cd ~/suckless
 }
 
+# ===================== БУФЕР ОБМЕНА (clipmenu) =====================
+create_clipmenu_config() {
+    log "Настройка буфера обмена (clipmenu)..."
+    mkdir -p ~/bin
+
+    # Обёртка clipmenu с монохромным стилем dmenu
+    cat > ~/bin/clipmenu-picker << 'CLIPMENU'
+#!/bin/bash
+# Показ истории буфера обмена через dmenu (монохром)
+
+export PATH="/usr/local/bin:/usr/bin:/bin:$HOME/bin:$PATH"
+
+exec clipmenu \
+    -fn "JetBrains Mono:size=11" \
+    -l 20 \
+    -nb "#0c0b0a" \
+    -nf "#b5ada6" \
+    -sb "#1c1a18" \
+    -sf "#f5efe6" \
+    -p "clipboard:"
+CLIPMENU
+
+    chmod +x ~/bin/clipmenu-picker
+
+    # Настройки clipmenu через переменные окружения
+    mkdir -p ~/.config/clipmenu
+    cat > ~/.config/clipmenu/config << 'CLIPMENUCFG'
+# clipmenu configuration
+export CM_LAUNCHER=dmenu
+export CM_HISTLENGTH=200
+export CM_MAX_CLIPS=1000
+export CM_IGNORE_WINDOW="^(KeePassXC|Bitwarden)"
+CLIPMENUCFG
+
+    log "Clipmenu настроен (Super+V — открыть историю)"
+}
+
+# ===================== ЦЕНТР УВЕДОМЛЕНИЙ =====================
+create_notification_center() {
+    log "Создание центра уведомлений..."
+    mkdir -p ~/bin
+
+    cat > ~/bin/notification-center << 'NOTIFCENTER'
+#!/bin/bash
+# Центр уведомлений — история dunst через dmenu
+
+export PATH="/usr/local/bin:/usr/bin:/bin:$HOME/bin:$PATH"
+
+if ! command -v dunstctl &>/dev/null; then
+    notify-send "Ошибка" "dunstctl не найден" -u critical
+    exit 1
+fi
+
+# Получаем количество уведомлений
+COUNT=$(dunstctl count history 2>/dev/null | head -1)
+WAITING=$(dunstctl count waiting 2>/dev/null | head -1)
+DISPLAYED=$(dunstctl count displayed 2>/dev/null | head -1)
+
+# Формируем меню
+MENU=""
+MENU+="  История: ${COUNT:-0} | Показано: ${DISPLAYED:-0} | Ожидает: ${WAITING:-0}\n"
+MENU+="─────────────────────────────────\n"
+MENU+="  Показать последнее уведомление\n"
+MENU+="  Закрыть текущее\n"
+MENU+="  Закрыть все\n"
+MENU+="  Открыть контекстное меню\n"
+MENU+="  Пауза уведомлений\n"
+MENU+="  Возобновить уведомления\n"
+
+CHOICE=$(echo -e "$MENU" | dmenu \
+    -fn "JetBrains Mono:size=11" \
+    -l 10 \
+    -nb "#0c0b0a" \
+    -nf "#b5ada6" \
+    -sb "#1c1a18" \
+    -sf "#f5efe6" \
+    -p "notifications:")
+
+case "$CHOICE" in
+    *"Показать последнее"*)
+        dunstctl history-pop
+        ;;
+    *"Закрыть текущее"*)
+        dunstctl close
+        ;;
+    *"Закрыть все"*)
+        dunstctl close-all
+        ;;
+    *"Открыть контекстное"*)
+        dunstctl context
+        ;;
+    *"Пауза"*)
+        dunstctl set-paused true
+        notify-send "Dunst" "Уведомления приостановлены" 2>/dev/null
+        ;;
+    *"Возобновить"*)
+        dunstctl set-paused false
+        notify-send "Dunst" "Уведомления возобновлены" 2>/dev/null
+        ;;
+esac
+NOTIFCENTER
+
+    chmod +x ~/bin/notification-center
+
+    log "Центр уведомлений создан (Super+~ — открыть)"
+}
+
 # ===================== LOCKSCREEN =====================
 create_lockscreen() {
-    log "Создание скрипта блокировки..."
+    log "Создание блокировки..."
     mkdir -p ~/bin
 
     cat > ~/bin/lockscreen << 'LOCKSCREEN'
@@ -448,7 +576,7 @@ SCREENSHOTFULL
 
 # ===================== TELEGRAM =====================
 create_telegram_launcher() {
-    log "Создание Telegram запускателя..."
+    log "Создание Telegram..."
     mkdir -p ~/bin
     cat > ~/bin/telegram << 'TELEGRAM'
 #!/bin/bash
@@ -559,7 +687,7 @@ ALACRITTY
 
 # ===================== МЫШЬ =====================
 create_mouse_config() {
-    log "Отключение акселерации мыши..."
+    log "Отключение акселерации..."
     sudo mkdir -p /etc/X11/xorg.conf.d
     sudo tee /etc/X11/xorg.conf.d/50-mouse-accel.conf > /dev/null << 'MOUSECONF'
 Section "InputClass"
@@ -648,27 +776,37 @@ NSRESET
     fi
 }
 
-# ===================== СТАТУС-БАР =====================
+# ===================== СТАТУС-БАР (с индикатором уведомлений) =====================
 create_statusbar() {
     log "Создание статус-бара..."
     mkdir -p ~/suckless
 
     cat > ~/suckless/dwm-statusbar.sh << 'STATUSBAR'
 #!/bin/bash
-# Быстрый статус-бар для DWM
-
 export PATH="/usr/local/bin:/usr/bin:/bin:$HOME/bin:$PATH"
 export DISPLAY="${DISPLAY:-:0}"
 
-# Первичный тест — обязательно поставим текст сразу
 xsetroot -name " Загрузка... "
-
 sleep 1
 
 while true; do
     DATE=$(date +'%a %d %b')
     TIME=$(date +'%H:%M')
 
+    # Уведомления (индикатор в баре)
+    NOTIF=""
+    if command -v dunstctl &>/dev/null; then
+        N=$(dunstctl count history 2>/dev/null | head -1)
+        if [ -n "$N" ] && [ "$N" -gt 0 ]; then
+            NOTIF="[N:${N}] | "
+        fi
+        PAUSED=$(dunstctl is-paused 2>/dev/null)
+        if [ "$PAUSED" = "true" ]; then
+            NOTIF="[PAUSED] | "
+        fi
+    fi
+
+    # Батарея
     BAT=""
     if [ -f /sys/class/power_supply/BAT0/capacity ]; then
         BAT_CAP=$(cat /sys/class/power_supply/BAT0/capacity 2>/dev/null)
@@ -680,6 +818,7 @@ while true; do
         fi
     fi
 
+    # Звук
     VOL=""
     if command -v amixer &>/dev/null; then
         AMIXER_OUT=$(amixer sget Master 2>/dev/null)
@@ -695,6 +834,7 @@ while true; do
         fi
     fi
 
+    # RAM
     RAM=""
     if [ -f /proc/meminfo ]; then
         MEM_TOTAL=$(awk '/MemTotal:/ {print $2}' /proc/meminfo)
@@ -707,12 +847,12 @@ while true; do
         fi
     fi
 
+    # CPU
     CPU=$(ps -A -o pcpu 2>/dev/null | awk '{s+=$1} END {print int(s)}')
     [ -n "$CPU" ] || CPU="0"
 
-    STATUS=" ${VOL}${BAT}CPU ${CPU}% | RAM ${RAM} | ${DATE} ${TIME} "
+    STATUS=" ${NOTIF}${VOL}${BAT}CPU ${CPU}% | RAM ${RAM} | ${DATE} ${TIME} "
     xsetroot -name "$STATUS"
-
     sleep 2
 done
 STATUSBAR
@@ -720,9 +860,9 @@ STATUSBAR
     chmod +x ~/suckless/dwm-statusbar.sh
 }
 
-# ===================== GTK ТЁМНАЯ ТЕМА =====================
+# ===================== GTK ТЕМА =====================
 create_gtk_theme() {
-    log "Настройка GTK тёмной темы..."
+    log "Настройка GTK темы..."
 
     mkdir -p ~/.config/gtk-3.0
     cat > ~/.config/gtk-3.0/settings.ini << 'GTK3'
@@ -863,63 +1003,93 @@ BASHRC_LS
     fi
 }
 
-# ===================== DWM-SESSION ДЛЯ LY (КРИТИЧНО!) =====================
-create_dwm_session() {
-    log "Создание dwm-session с полной инициализацией для ly..."
+# ===================== ТРЕЙ КОНФИГ (trayer) =====================
+create_trayer_config() {
+    log "Настройка trayer (для трей-иконок)..."
 
-    # ГЛАВНОЕ: скрипт использует dbus-run-session
-    # ly не создаёт D-Bus сессию — приходится делать это самим
+    mkdir -p ~/bin
+
+    # Скрипт запуска trayer
+    cat > ~/bin/start-trayer << 'STARTTRAYER'
+#!/bin/bash
+# Запуск trayer в правом верхнем углу, под DWM баром
+
+# Убиваем предыдущий экземпляр
+pkill -x trayer 2>/dev/null
+sleep 0.5
+
+trayer \
+    --edge top \
+    --align right \
+    --SetDockType true \
+    --SetPartialStrut true \
+    --expand true \
+    --width 8 \
+    --widthtype percent \
+    --transparent true \
+    --alpha 0 \
+    --tint 0x0c0b0a \
+    --height 22 \
+    --iconspacing 4 \
+    --padding 4 \
+    --distance 0 \
+    --distancefrom top \
+    --margin 0 \
+    --monitor 0 &
+STARTTRAYER
+
+    chmod +x ~/bin/start-trayer
+
+    log "Trayer настроен (запустится автоматически)"
+}
+
+# ===================== DWM-SESSION (с трей + буфер + уведомления) =====================
+create_dwm_session() {
+    log "Создание dwm-session с треем и буфером..."
+
     sudo tee /usr/local/bin/dwm-session > /dev/null << 'DWMSESSION'
 #!/bin/bash
-# dwm-session — Универсальный запуск DWM (для ly, sddm, gdm, startx)
+# dwm-session — с поддержкой трея, буфера обмена, уведомлений
 
-# ─── 1. ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ ───
-# ly НЕ выставляет DISPLAY — задаём вручную
+# ─── 1. ПЕРЕМЕННЫЕ ───
 export DISPLAY="${DISPLAY:-:0}"
 export XDG_SESSION_TYPE="x11"
 export XDG_CURRENT_DESKTOP="DWM"
 export XDG_SESSION_DESKTOP="dwm"
-
-# PATH — ly НЕ загружает .bashrc, задаём вручную
 export PATH="$HOME/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
 
-# GTK тёмная тема
 export GTK_THEME="Adwaita-dark"
 export QT_QPA_PLATFORMTHEME="gtk3"
 export QT_STYLE_OVERRIDE="Adwaita-Dark"
 export _JAVA_OPTIONS='-Dawt.useSystemAAFontSettings=on -Dswing.aatext=true -Dswing.defaultlaf=com.sun.java.swing.plaf.gtk.GTKLookAndFeel'
 
-# Локаль
 export LANG="${LANG:-en_US.UTF-8}"
 export LC_ALL="${LC_ALL:-en_US.UTF-8}"
 
-# ─── 2. ЛОГИРОВАНИЕ (для диагностики) ───
+# ─── 2. ЛОГ ───
 LOG="$HOME/.dwm-session.log"
 echo "=== $(date) — DWM session started ===" > "$LOG"
-echo "DISPLAY=$DISPLAY" >> "$LOG"
-echo "USER=$USER  HOME=$HOME" >> "$LOG"
 
-# ─── 3. D-BUS СЕССИЯ ───
-# ly НЕ создаёт D-Bus сессию — она нужна для gsettings, nm-applet, blueman
+# ─── 3. D-BUS ───
 if [ -z "$DBUS_SESSION_BUS_ADDRESS" ]; then
-    echo "Starting D-Bus session..." >> "$LOG"
     eval "$(dbus-launch --sh-syntax --exit-with-session)"
     export DBUS_SESSION_BUS_ADDRESS
     export DBUS_SESSION_BUS_PID
+    echo "D-Bus started" >> "$LOG"
 fi
 
-# ─── 4. КУРСОР И ФОН ───
+# ─── 4. КУРСОР + ФОН ───
 xsetroot -cursor_name left_ptr &
 xsetroot -solid "#0c0b0a" &
 
-# ─── 5. ТЁМНАЯ ТЕМА GTK ───
+# ─── 5. ТЁМНАЯ ТЕМА ───
 xsettingsd &
 sleep 0.3
 gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark' 2>>"$LOG" &
 gsettings set org.gnome.desktop.interface gtk-theme 'Adwaita-dark' 2>>"$LOG" &
 gsettings set org.gnome.desktop.interface icon-theme 'Adwaita' 2>>"$LOG" &
 
-# ─── 6. ОТКЛЮЧЕНИЕ АКСЕЛЕРАЦИИ МЫШИ ───
+# ─── 6. МЫШЬ ───
 (
     sleep 1
     for id in $(xinput list --id-only 2>/dev/null); do
@@ -928,30 +1098,49 @@ gsettings set org.gnome.desktop.interface icon-theme 'Adwaita' 2>>"$LOG" &
     done
 ) &
 
-# ─── 7. ФОНОВЫЕ УТИЛИТЫ ───
+# ─── 7. КОМПОЗИТОР И УВЕДОМЛЕНИЯ ───
 picom --config "$HOME/.config/picom/picom.conf" -b 2>>"$LOG" &
 dunst 2>>"$LOG" &
 lxsession 2>>"$LOG" &
 
-# ─── 8. СТАТУС-БАР (ГЛАВНОЕ!) ───
-# Запускаем ДО DWM, чтобы часы появились сразу
-echo "Starting statusbar..." >> "$LOG"
-if [ -x "$HOME/suckless/dwm-statusbar.sh" ]; then
-    "$HOME/suckless/dwm-statusbar.sh" >> "$LOG" 2>&1 &
-    echo "Statusbar PID: $!" >> "$LOG"
-else
-    echo "ERROR: statusbar not found!" >> "$LOG"
-    xsetroot -name " No statusbar! Check ~/suckless/dwm-statusbar.sh "
+# ─── 8. БУФЕР ОБМЕНА (clipmenu daemon) ───
+# clipmenud следит за буфером и сохраняет историю
+if command -v clipmenud &>/dev/null; then
+    clipmenud >> "$LOG" 2>&1 &
+    echo "clipmenud started (PID: $!)" >> "$LOG"
 fi
 
-# ─── 9. ТРЕЙ (после DWM подтянутся в systray) ───
+# ─── 9. СТАТУС-БАР ───
+if [ -x "$HOME/suckless/dwm-statusbar.sh" ]; then
+    "$HOME/suckless/dwm-statusbar.sh" >> "$LOG" 2>&1 &
+    echo "Statusbar started (PID: $!)" >> "$LOG"
+fi
+
+# ─── 10. ТРЕЙ (trayer fallback ИЛИ systray patch) ───
+# Проверяем, был ли применён systray патч
+SYSTRAY_STATUS="0"
+[ -f "$HOME/.dwm-systray-status" ] && SYSTRAY_STATUS=$(cat "$HOME/.dwm-systray-status")
+
+if [ "$SYSTRAY_STATUS" != "1" ]; then
+    # Патч systray НЕ применён — запускаем trayer
+    echo "Starting trayer (systray patch not applied)..." >> "$LOG"
+    (
+        sleep 2
+        "$HOME/bin/start-trayer" >> "$LOG" 2>&1
+    ) &
+else
+    echo "DWM systray patch active" >> "$LOG"
+fi
+
+# ─── 11. ТРЕЙ-ИКОНКИ (после запуска трея) ───
 (
-    sleep 3
+    sleep 4
     nm-applet 2>>"$LOG" &
     blueman-applet 2>>"$LOG" &
+    echo "Tray icons launched" >> "$LOG"
 ) &
 
-# ─── 10. АВТОБЛОКИРОВКА ───
+# ─── 12. АВТОБЛОКИРОВКА ───
 if command -v xidlehook &>/dev/null; then
     xidlehook \
         --not-when-fullscreen \
@@ -959,26 +1148,23 @@ if command -v xidlehook &>/dev/null; then
         --timer 600 "$HOME/bin/lockscreen" '' 2>>"$LOG" &
 fi
 
-# ─── 11. НОЧНОЙ РЕЖИМ ───
+# ─── 13. НОЧНОЙ РЕЖИМ ───
 if [ -x "$HOME/bin/nightshift" ]; then
     "$HOME/bin/nightshift" 2>>"$LOG" &
-    echo "Nightshift PID: $!" >> "$LOG"
 fi
 
-# ─── 12. ЗАПУСК DWM ───
+# ─── 14. ЗАПУСК DWM ───
 echo "Starting DWM..." >> "$LOG"
 exec dwm
 DWMSESSION
 
     sudo chmod +x /usr/local/bin/dwm-session
-    log "Скрипт /usr/local/bin/dwm-session создан!"
+    log "dwm-session создан с треем и буфером!"
 }
 
-# ===================== СЕССИЯ ДЛЯ LY =====================
+# ===================== СЕССИЯ =====================
 create_session() {
-    log "Создание файла сессии для ly..."
-
-    # Файл сессии для ly (и других display manager)
+    log "Создание сессии для ly..."
     sudo mkdir -p /usr/share/xsessions
     sudo tee /usr/share/xsessions/dwm.desktop > /dev/null << 'SESSION'
 [Desktop Entry]
@@ -990,45 +1176,174 @@ Icon=dwm
 Type=XSession
 SESSION
 
-    # .xinitrc для startx (если ly недоступен)
     cat > ~/.xinitrc << 'XINITRC'
 #!/bin/sh
 exec /usr/local/bin/dwm-session
 XINITRC
     chmod +x ~/.xinitrc
+}
 
-    log "Сессия для ly настроена!"
+# ===================== PICOM =====================
+create_picom_config() {
+    mkdir -p ~/.config/picom
+    cat > ~/.config/picom/picom.conf << 'PICOM'
+backend = "xrender";
+shadow = true;
+shadow-radius = 12;
+shadow-offset-x = -7;
+shadow-offset-y = -7;
+shadow-opacity = 0.6;
+shadow-color = "#0c0b0a";
+
+shadow-exclude = [
+    "class_g = 'trayer'",
+    "name = 'trayer'"
+];
+
+inactive-opacity = 0.95;
+active-opacity = 1.0;
+frame-opacity = 1.0;
+
+fading = true;
+fade-in-step = 0.06;
+fade-out-step = 0.06;
+fade-delta = 5;
+
+corner-radius = 0;
+vsync = true;
+PICOM
+}
+
+# ===================== DUNST (с историей + иконками) =====================
+create_dunst_config() {
+    log "Настройка dunst с историей..."
+    mkdir -p ~/.config/dunst
+    cat > ~/.config/dunst/dunstrc << 'DUNST'
+[global]
+    monitor = 0
+    follow = mouse
+    width = 350
+    height = 100
+    origin = top-right
+    offset = 20x40
+    frame_width = 2
+    frame_color = "#3a3632"
+    font = JetBrains Mono 10
+    corner_radius = 0
+
+    # История уведомлений
+    sticky_history = yes
+    history_length = 50
+
+    # Иконки
+    icon_position = left
+    min_icon_size = 32
+    max_icon_size = 48
+
+    # Прогресс-бар
+    progress_bar = true
+    progress_bar_height = 8
+    progress_bar_frame_width = 1
+    progress_bar_min_width = 100
+    progress_bar_max_width = 300
+
+    # Формат
+    format = "<b>%s</b>\n%b"
+    show_age_threshold = 60
+    ellipsize = middle
+    word_wrap = yes
+
+    # Показывать индикатор ожидания
+    show_indicators = yes
+
+    # Мышь
+    mouse_left_click = do_action, close_current
+    mouse_middle_click = close_all
+    mouse_right_click = context
+
+[urgency_low]
+    background = "#0c0b0a"
+    foreground = "#b5ada6"
+    frame_color = "#3a3632"
+    timeout = 5
+
+[urgency_normal]
+    background = "#0c0b0a"
+    foreground = "#d5cdc4"
+    frame_color = "#5a544d"
+    timeout = 10
+
+[urgency_critical]
+    background = "#1c1a18"
+    foreground = "#f5efe6"
+    frame_color = "#f5efe6"
+    timeout = 0
+DUNST
+
+    log "Dunst настроен (история + иконки + прогресс)"
 }
 
 # ===================== ШПАРГАЛКА =====================
 create_cheatsheet() {
     cat > ~/dwm-keybinds.txt << 'CHEAT'
 ╔══════════════════════════════════════════════════════════════╗
-║                    DWM KEYBINDINGS v11.4 (ly)                ║
+║                    DWM KEYBINDINGS v11.5                     ║
 ╠══════════════════════════════════════════════════════════════╣
+║  ЗАПУСК ПРОГРАММ                                             ║
 ║  Super + Enter        — Терминал                             ║
-║  Super + D            — dmenu                                ║
+║  Super + D            — dmenu (все программы)                ║
 ║  Super + W            — Zen Browser                          ║
-║  Super + E            — LF (файловый менеджер)               ║
+║  Super + E            — LF файловый менеджер                 ║
 ║  Super + T            — Telegram                             ║
 ║  Super + Shift + S    — Steam                                ║
 ║  Super + Shift + L    — Заблокировать экран                  ║
-║  Print                — Скриншот области                     ║
+║                                                              ║
+║  БУФЕР ОБМЕНА (clipmenu)                                     ║
+║  Super + V            — Открыть историю буфера обмена        ║
+║                                                              ║
+║  УВЕДОМЛЕНИЯ (dunst)                                         ║
+║  Super + `            — Центр уведомлений                    ║
+║  Super + X            — Закрыть текущее уведомление          ║
+║  Super + Shift + X    — Закрыть ВСЕ уведомления              ║
+║  ЛКМ по бару          — Открыть центр уведомлений            ║
+║  ПКМ по бару          — Открыть буфер обмена                 ║
+║                                                              ║
+║  СКРИНШОТЫ                                                   ║
+║  Print                — Скриншот выделенной области          ║
 ║  Shift + Print        — Скриншот всего экрана                ║
-║  Super + J/K          — Переключение окон                    ║
-║  Super + H/L          — Размер master                        ║
-║  Super + ;            — Tile                                 ║
-║  Super + M            — Monocle                              ║
-║  Super + 1..9         — Теги                                 ║
+║                                                              ║
+║  ОКНА                                                        ║
+║  Super + J/K          — Переключение между окнами            ║
+║  Super + H/L          — Изменение размера master             ║
+║  Super + Shift+Enter  — Сделать окно главным                 ║
+║  Super + Shift + Q    — Закрыть окно                         ║
+║  Super + ;            — Tile (плитка)                        ║
+║  Super + Shift + ;    — Float (плавающие)                    ║
+║  Super + M            — Monocle (один экран)                 ║
+║  Super + N            — Переключить раскладку                ║
+║  Super + Shift + N    — Плавающее окно                       ║
+║  Super + B            — Скрыть панель                        ║
+║                                                              ║
+║  РАБОЧИЕ СТОЛЫ                                               ║
+║  Super + 1..9         — Переключить                          ║
+║  Super + Shift + 1..9 — Перенести окно                       ║
+║                                                              ║
+║  ВЫХОД                                                       ║
 ║  Ctrl+Super+Shift+Q   — Выйти из DWM                         ║
 ╚══════════════════════════════════════════════════════════════╝
 
-Диагностика:
-  cat ~/.dwm-session.log     — лог автозапуска (что не запустилось)
-  pgrep -af dwm-statusbar    — работает ли часы
-  pgrep -af nightshift       — работает ли ночной режим
-  xrandr --verbose | head    — проверить DISPLAY
-  systemctl --user status    — статус пользовательских сервисов
+СТАТУС-БАР ИНДИКАТОРЫ:
+  [N:5]      — 5 уведомлений в истории (Super+` — открыть)
+  [PAUSED]   — уведомления приостановлены
+  MUTE       — звук выключен
+  BAT 80%    — заряд батареи
+
+ДИАГНОСТИКА:
+  cat ~/.dwm-session.log        — лог автозапуска
+  pgrep -af trayer               — работает ли трей
+  pgrep -af clipmenud            — работает ли буфер обмена
+  pgrep -af dunst                — работают ли уведомления
+  dunstctl count history         — сколько уведомлений в истории
 CHEAT
 }
 
@@ -1037,51 +1352,23 @@ run_diagnostics() {
     echo ""
     echo -e "${CYAN}═══════════ ДИАГНОСТИКА ═══════════${NC}"
 
-    if [ -x /usr/local/bin/dwm-session ]; then
-        log "✓ /usr/local/bin/dwm-session установлен"
-    else
-        err "✗ dwm-session НЕ создан!"
-    fi
+    [ -x /usr/local/bin/dwm-session ] && log "✓ dwm-session" || err "✗ dwm-session"
+    [ -x ~/suckless/dwm-statusbar.sh ] && log "✓ Статус-бар" || warn "✗ Статус-бар"
+    [ -x ~/bin/clipmenu-picker ] && log "✓ Clipmenu-picker" || warn "✗ Clipmenu"
+    [ -x ~/bin/notification-center ] && log "✓ Центр уведомлений" || warn "✗ Центр уведомлений"
+    [ -x ~/bin/start-trayer ] && log "✓ Trayer скрипт" || warn "✗ Trayer скрипт"
 
-    if [ -f /usr/share/xsessions/dwm.desktop ]; then
-        log "✓ Файл сессии dwm.desktop создан"
-    else
-        warn "✗ dwm.desktop отсутствует"
-    fi
+    command -v trayer &>/dev/null && log "✓ trayer установлен" || err "✗ trayer НЕ установлен"
+    command -v clipmenu &>/dev/null && log "✓ clipmenu установлен" || err "✗ clipmenu НЕ установлен"
+    command -v clipmenud &>/dev/null && log "✓ clipmenud (демон) готов" || warn "✗ clipmenud не найден"
+    command -v dunstctl &>/dev/null && log "✓ dunstctl (управление уведомлениями)" || warn "✗ dunstctl не найден"
 
-    if [ -x ~/suckless/dwm-statusbar.sh ]; then
-        log "✓ Статус-бар готов"
-    else
-        warn "✗ Статус-бар не найден"
-    fi
-
-    if [ -x ~/bin/nightshift ]; then
-        log "✓ Nightshift готов"
-    else
-        warn "✗ Nightshift не найден"
-    fi
-
-    if [ -x ~/bin/lockscreen ]; then
-        log "✓ Lockscreen готов"
-    else
-        warn "✗ Lockscreen не найден"
-    fi
-
-    if command -v dbus-launch &>/dev/null; then
-        log "✓ dbus-launch установлен (для ly)"
-    else
-        err "✗ dbus не установлен!"
-    fi
-
-    if command -v amixer &>/dev/null; then
-        log "✓ amixer доступен (звук в статус-баре)"
-    else
-        warn "! amixer не найден"
-    fi
-
-    # Проверка ly
-    if systemctl is-enabled ly.service &>/dev/null; then
-        log "✓ ly service включён"
+    if [ -f ~/.dwm-systray-status ]; then
+        if [ "$(cat ~/.dwm-systray-status)" = "1" ]; then
+            log "✓ DWM systray патч ПРИМЕНЁН — трей встроен в DWM"
+        else
+            warn "! DWM systray патч НЕ применился → используется trayer"
+        fi
     fi
 
     echo -e "${CYAN}═══════════════════════════════════${NC}"
@@ -1092,8 +1379,8 @@ run_diagnostics() {
 main() {
     echo ""
     echo -e "${CYAN}╔══════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║   DWM Warm Monochrome v11.4                 ║${NC}"
-    echo -e "${CYAN}║   Полная поддержка ly (TUI display manager) ║${NC}"
+    echo -e "${CYAN}║   DWM Warm Monochrome v11.5                 ║${NC}"
+    echo -e "${CYAN}║   Трей + Буфер обмена + Центр уведомлений   ║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
 
@@ -1114,6 +1401,11 @@ main() {
     apply_dark_theme_now
     create_lf_config
     create_nightshift
+    create_picom_config
+    create_dunst_config
+    create_clipmenu_config
+    create_notification_center
+    create_trayer_config
     create_dwm_session
     create_session
     create_cheatsheet
@@ -1125,15 +1417,17 @@ main() {
     echo -e "${GREEN}║          УСТАНОВКА ЗАВЕРШЕНА!                ║${NC}"
     echo -e "${GREEN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
-    info "Что нового в v11.4:"
-    echo "  ✓ Полная поддержка ly (TUI display manager)"
-    echo "  ✓ Ручной запуск D-Bus (ly не создаёт сессию)"
-    echo "  ✓ Ручное задание DISPLAY, PATH, локали"
-    echo "  ✓ Логирование в ~/.dwm-session.log"
-    echo "  ✓ Часы появляются мгновенно (до запуска DWM)"
+    info "Новое в v11.5:"
+    echo "  ✓ Трей (trayer) — если systray патч DWM не применился"
+    echo "  ✓ Буфер обмена (clipmenu) — Super+V"
+    echo "  ✓ Центр уведомлений — Super+~"
+    echo "  ✓ Закрыть уведомление — Super+X"
+    echo "  ✓ Закрыть все — Super+Shift+X"
+    echo "  ✓ ЛКМ по статус-бару — центр уведомлений"
+    echo "  ✓ ПКМ по статус-бару — буфер обмена"
+    echo "  ✓ Индикатор [N:5] в баре — количество уведомлений"
     echo ""
-    warn "ВАЖНО: перезагрузите ПК!"
-    info "После входа проверьте лог: cat ~/.dwm-session.log"
+    warn "Перезагрузите ПК: reboot"
     echo ""
 }
 
