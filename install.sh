@@ -1,6 +1,6 @@
 #!/bin/bash
 # install.sh — Полная установка DWM окружения на CachyOS/Arch
-# Версия 11.0 — Исправление блокировки, часов, GTK темы, LF цветов
+# Версия 11.2 — Расширенная палитра оттенков + автозапуск nightshift
 
 set -e
 
@@ -44,7 +44,6 @@ install_packages() {
         libnotify \
         openssh bc \
         imagemagick \
-        i3lock \
         xsettingsd \
         gnome-themes-extra adwaita-icon-theme \
         gsettings-desktop-schemas dconf
@@ -85,10 +84,11 @@ install_aur_packages() {
     log "Установка AUR пакетов..."
 
     info "i3lock-color..."
-    if yay -S --needed --noconfirm i3lock-color 2>/dev/null; then
+    if yay -S --needed --noconfirm i3lock-color; then
         log "i3lock-color установлен!"
     else
-        warn "i3lock-color не установлен. Будем использовать обычный i3lock."
+        warn "i3lock-color не собрался, ставим обычный i3lock..."
+        sudo pacman -S --needed --noconfirm i3lock
     fi
 
     info "Zen Browser..."
@@ -150,7 +150,7 @@ download_tool() {
     err "Не удалось загрузить $name!"
 }
 
-# ===================== СБОРКА DWM С SYSTRAY =====================
+# ===================== СБОРКА DWM =====================
 build_dwm() {
     download_tool "dwm" \
         "https://gitee.com/mirrors/dwm.git" \
@@ -177,7 +177,7 @@ build_dwm() {
     fi
 
     cat > config.h << 'DWMCONFIG'
-/* DWM config.h — Тёплый монохром v11 */
+/* DWM config.h — Тёплый монохром v11.2 */
 
 static const unsigned int borderpx       = 2;
 static const unsigned int snap           = 16;
@@ -364,18 +364,15 @@ DMENUCONFIG
     cd ~/suckless
 }
 
-# ===================== LOCKSCREEN (умный: i3lock-color → i3lock) =====================
+# ===================== LOCKSCREEN =====================
 create_lockscreen() {
     log "Создание скрипта блокировки экрана..."
     mkdir -p ~/bin
 
     cat > ~/bin/lockscreen << 'LOCKSCREEN'
 #!/bin/bash
-# Умный экран блокировки — использует i3lock-color если есть, иначе i3lock
-
 TMPIMG="/tmp/lockscreen.png"
 
-# Делаем скриншот и обрабатываем
 if command -v scrot &>/dev/null; then
     scrot -o "$TMPIMG" 2>/dev/null
 fi
@@ -388,9 +385,7 @@ if [ -f "$TMPIMG" ] && command -v convert &>/dev/null; then
         "$TMPIMG" 2>/dev/null
 fi
 
-# Проверяем какая версия i3lock установлена
 if i3lock --help 2>&1 | grep -q "insidecolor"; then
-    # i3lock-color установлен — используем красивую версию
     if [ -f "$TMPIMG" ]; then
         i3lock \
             --image="$TMPIMG" \
@@ -439,21 +434,9 @@ if i3lock --help 2>&1 | grep -q "insidecolor"; then
             --ignore-empty-password \
             --show-failed-attempts
     else
-        # Нет скриншота — просто чёрный фон
-        i3lock \
-            --color=0c0b0a \
-            --nofork \
-            --clock \
-            --ignore-empty-password \
-            --time-font="JetBrains Mono" \
-            --date-font="JetBrains Mono" \
-            --timecolor=b5ada6ff \
-            --datecolor=b5ada6ff \
-            --ringcolor=3a3632ff \
-            --keyhlcolor=f5efe6ff
+        i3lock --color=0c0b0a --nofork --clock --ignore-empty-password
     fi
 else
-    # Обычный i3lock — минимальный конфиг
     if [ -f "$TMPIMG" ]; then
         i3lock --image="$TMPIMG" --nofork
     else
@@ -465,7 +448,6 @@ rm -f "$TMPIMG"
 LOCKSCREEN
 
     chmod +x ~/bin/lockscreen
-    log "Блокировка ~/bin/lockscreen создана"
 }
 
 # ===================== СКРИНШОТЫ =====================
@@ -522,11 +504,34 @@ TELEGRAM
     chmod +x ~/bin/telegram
 }
 
-# ===================== ALACRITTY =====================
+# ===================== ALACRITTY (16 ОТТЕНКОВ) =====================
 create_alacritty_config() {
-    log "Создание конфига Alacritty..."
+    log "Создание конфига Alacritty (расширенная палитра)..."
     mkdir -p ~/.config/alacritty
+
     cat > ~/.config/alacritty/alacritty.toml << 'ALACRITTY'
+# ============================================================
+#  Alacritty — Тёплый монохром (16 оттенков)
+#
+#  Полная палитра от тёмного к светлому:
+#  #0c0b0a  — фон (тёплый почти-чёрный)
+#  #1c1a18  — фон выделения
+#  #2a2622  — тёмно-коричневый
+#  #3a3632  — тёплая рамка
+#  #4a453f  — тёмно-серый
+#  #5a544d  — средне-тёмный
+#  #6a635a  — средний тусклый
+#  #7a7268  — средний
+#  #8a8177  — средний светлый
+#  #9a9086  — светло-серый тёплый
+#  #a89e93  — светлый
+#  #b5ada6  — обычный текст
+#  #c5bdb2  — светлее текста
+#  #d5cdc4  — очень светлый
+#  #e5ddd2  — почти акцент
+#  #f5efe6  — кремовый белый (акцент)
+# ============================================================
+
 [env]
 TERM = "xterm-256color"
 
@@ -551,38 +556,117 @@ style = "Bold"
 [font.italic]
 family = "JetBrains Mono"
 style = "Italic"
+[font.bold_italic]
+family = "JetBrains Mono"
+style = "Bold Italic"
+
+# ─── Основные цвета ───
 
 [colors.primary]
-background = "#0c0b0a"
-foreground = "#b5ada6"
+background         = "#0c0b0a"
+foreground         = "#b5ada6"
+dim_foreground     = "#7a7268"
+bright_foreground  = "#f5efe6"
 
 [colors.cursor]
 text    = "#0c0b0a"
 cursor  = "#f5efe6"
 
+[colors.vi_mode_cursor]
+text    = "#0c0b0a"
+cursor  = "#e5ddd2"
+
 [colors.selection]
-text       = "#0c0b0a"
-background = "#3a3632"
+text       = "#f5efe6"
+background = "#4a453f"
+
+[colors.search.matches]
+foreground = "#0c0b0a"
+background = "#9a9086"
+
+[colors.search.focused_match]
+foreground = "#0c0b0a"
+background = "#f5efe6"
+
+[colors.footer_bar]
+foreground = "#b5ada6"
+background = "#1c1a18"
+
+[colors.hints.start]
+foreground = "#0c0b0a"
+background = "#e5ddd2"
+
+[colors.hints.end]
+foreground = "#0c0b0a"
+background = "#9a9086"
+
+[colors.line_indicator]
+foreground = "#f5efe6"
+background = "None"
+
+# ─── ANSI цвета (обычные) — тёплые оттенки серого ───
+# Каждый цвет получает свой различимый оттенок
 
 [colors.normal]
-black   = "#0c0b0a"
-red     = "#b5ada6"
-green   = "#8a8278"
-yellow  = "#d5cdc4"
-blue    = "#7a7268"
-magenta = "#a59d94"
-cyan    = "#6a6258"
-white   = "#b5ada6"
+black   = "#0c0b0a"     # 0  — очень тёмный
+red     = "#8a8177"     # 1  — средне-светлый (red в терминале)
+green   = "#6a635a"     # 2  — средний тусклый (green)
+yellow  = "#d5cdc4"     # 3  — очень светлый (yellow)
+blue    = "#5a544d"     # 4  — средне-тёмный (blue)
+magenta = "#9a9086"     # 5  — светло-серый (magenta)
+cyan    = "#4a453f"     # 6  — тёмно-серый (cyan)
+white   = "#b5ada6"     # 7  — обычный текст
+
+# ─── ANSI цвета (яркие) — светлее обычных ───
 
 [colors.bright]
-black   = "#3a3632"
-red     = "#d5cdc4"
-green   = "#a59d94"
-yellow  = "#f5efe6"
-blue    = "#8a8278"
-magenta = "#b5ada6"
-cyan    = "#7a7268"
-white   = "#f5efe6"
+black   = "#3a3632"     # 8  — тёплая рамка (bright black = grey)
+red     = "#a89e93"     # 9  — светлый (bright red)
+green   = "#8a8177"     # 10 — средне-светлый (bright green)
+yellow  = "#f5efe6"     # 11 — акцент кремовый (bright yellow)
+blue    = "#7a7268"     # 12 — средний (bright blue)
+magenta = "#c5bdb2"     # 13 — светлее текста (bright magenta)
+cyan    = "#6a635a"     # 14 — средний тусклый (bright cyan)
+white   = "#f5efe6"     # 15 — акцент (bright white)
+
+# ─── Приглушённые цвета (dim) — тёмные варианты ───
+
+[colors.dim]
+black   = "#0c0b0a"
+red     = "#5a544d"
+green   = "#4a453f"
+yellow  = "#8a8177"
+blue    = "#3a3632"
+magenta = "#6a635a"
+cyan    = "#2a2622"
+white   = "#7a7268"
+
+# ─── Индексированные цвета (256-color палитра) ───
+# Расширяем оттенки для тонкой градации
+
+[[colors.indexed_colors]]
+index = 16
+color = "#e5ddd2"
+
+[[colors.indexed_colors]]
+index = 17
+color = "#a89e93"
+
+[[colors.indexed_colors]]
+index = 18
+color = "#2a2622"
+
+[[colors.indexed_colors]]
+index = 19
+color = "#9a9086"
+
+[[colors.indexed_colors]]
+index = 20
+color = "#c5bdb2"
+
+[[colors.indexed_colors]]
+index = 21
+color = "#1c1a18"
 
 [keyboard]
 bindings = [
@@ -592,15 +676,20 @@ bindings = [
     { key = "Minus",    mods = "Control",       action = "DecreaseFontSize" },
     { key = "Key0",     mods = "Control",       action = "ResetFontSize" },
     { key = "F",        mods = "Control|Shift", action = "SearchForward" },
+    { key = "B",        mods = "Control|Shift", action = "SearchBackward" },
     { key = "PageUp",   mods = "Shift",         action = "ScrollPageUp" },
     { key = "PageDown", mods = "Shift",         action = "ScrollPageDown" },
     { key = "Up",       mods = "Shift",         action = "ScrollLineUp" },
     { key = "Down",     mods = "Shift",         action = "ScrollLineDown" },
+    { key = "Home",     mods = "Shift",         action = "ScrollToTop" },
+    { key = "End",      mods = "Shift",         action = "ScrollToBottom" },
 ]
 
 [mouse]
 hide_when_typing = true
 ALACRITTY
+
+    log "Alacritty настроен (16+ оттенков серого)"
 }
 
 # ===================== МЫШЬ =====================
@@ -624,9 +713,9 @@ EndSection
 MOUSECONF
 }
 
-# ===================== NIGHTSHIFT + SYSTEMD =====================
+# ===================== NIGHTSHIFT + АВТОЗАПУСК =====================
 create_nightshift() {
-    log "Создание автозатемнения..."
+    log "Создание автозатемнения с автозапуском..."
     mkdir -p ~/bin
 
     cat > ~/bin/nightshift << 'NIGHTSHIFT'
@@ -685,10 +774,11 @@ echo "Экран сброшен."
 NSRESET
     chmod +x ~/bin/nightshift-reset
 
+    # Systemd user service
     mkdir -p ~/.config/systemd/user
     cat > ~/.config/systemd/user/nightshift.service << NSSERVICE
 [Unit]
-Description=Nightshift screen temperature
+Description=Nightshift — тёплое затемнение экрана
 After=graphical-session.target
 
 [Service]
@@ -702,8 +792,30 @@ Environment=DISPLAY=:0
 WantedBy=default.target
 NSSERVICE
 
+    # Перезагружаем systemd
     systemctl --user daemon-reload 2>/dev/null || true
+
+    # ВКЛЮЧАЕМ автозапуск (при загрузке)
     systemctl --user enable nightshift.service 2>/dev/null || true
+
+    # ЗАПУСКАЕМ прямо сейчас (если DISPLAY доступен)
+    if [ -n "$DISPLAY" ]; then
+        systemctl --user start nightshift.service 2>/dev/null || \
+            (nohup ~/bin/nightshift >/dev/null 2>&1 &)
+        log "Nightshift ЗАПУЩЕН"
+    else
+        # Если DISPLAY не задан — запускаем через nohup для гарантии
+        DISPLAY=:0 nohup ~/bin/nightshift >/dev/null 2>&1 &
+        log "Nightshift запущен в фоне (DISPLAY=:0)"
+    fi
+
+    # Проверяем что процесс жив
+    sleep 2
+    if pgrep -f "$HOME/bin/nightshift" >/dev/null 2>&1; then
+        log "✓ Nightshift работает (PID: $(pgrep -f "$HOME/bin/nightshift"))"
+    else
+        warn "Nightshift не запустился — проверьте вручную: ~/bin/nightshift &"
+    fi
 
     if ! grep -q 'export PATH="$HOME/bin:$PATH"' ~/.bashrc; then
         echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc
@@ -717,16 +829,12 @@ create_statusbar() {
 
     cat > ~/suckless/dwm-statusbar.sh << 'STATUSBAR'
 #!/bin/bash
-# DWM status bar — часы, батарея, звук, RAM, CPU
-
-# Ждём пока DWM запустится
 sleep 1
 
 while true; do
     DATE=$(date +'%a %d %b')
     TIME=$(date +'%H:%M')
 
-    # Батарея
     BAT=""
     if [ -f /sys/class/power_supply/BAT0/capacity ]; then
         BAT_CAP=$(cat /sys/class/power_supply/BAT0/capacity)
@@ -738,7 +846,6 @@ while true; do
         fi
     fi
 
-    # Звук
     VOL=""
     if command -v pactl &>/dev/null; then
         V=$(pactl get-sink-volume @DEFAULT_SINK@ 2>/dev/null | grep -o '[0-9]*%' | head -1)
@@ -750,10 +857,7 @@ while true; do
         fi
     fi
 
-    # RAM
     RAM=$(free -h 2>/dev/null | awk '/^Mem:/ {print $3}')
-
-    # CPU
     CPU=$(top -bn1 2>/dev/null | grep "Cpu(s)" | awk '{print int($2+$4)}')
 
     STATUS=" ${VOL}${BAT}CPU ${CPU}% | RAM ${RAM} | ${DATE} ${TIME} "
@@ -764,14 +868,12 @@ done
 STATUSBAR
 
     chmod +x ~/suckless/dwm-statusbar.sh
-    log "Статус-бар создан"
 }
 
-# ===================== GTK ТЁМНАЯ ТЕМА (ФИКС) =====================
+# ===================== GTK ТЁМНАЯ ТЕМА =====================
 create_gtk_theme() {
     log "Настройка тёмной GTK темы..."
 
-    # GTK3
     mkdir -p ~/.config/gtk-3.0
     cat > ~/.config/gtk-3.0/settings.ini << 'GTK3'
 [Settings]
@@ -789,7 +891,6 @@ gtk-menu-images=0
 gtk-button-images=0
 GTK3
 
-    # GTK4 (для новых приложений)
     mkdir -p ~/.config/gtk-4.0
     cat > ~/.config/gtk-4.0/settings.ini << 'GTK4'
 [Settings]
@@ -799,7 +900,6 @@ gtk-font-name=JetBrains Mono 11
 gtk-application-prefer-dark-theme=1
 GTK4
 
-    # GTK2
     cat > ~/.gtkrc-2.0 << 'GTK2'
 gtk-theme-name="Adwaita-dark"
 gtk-icon-theme-name="Adwaita"
@@ -808,7 +908,6 @@ gtk-cursor-theme-name="Adwaita"
 gtk-cursor-theme-size=24
 GTK2
 
-    # ENV переменные для тёмной темы (главное!)
     mkdir -p ~/.config/environment.d
     cat > ~/.config/environment.d/10-dark-theme.conf << 'ENVDARK'
 GTK_THEME=Adwaita-dark
@@ -816,7 +915,6 @@ QT_STYLE_OVERRIDE=Adwaita-Dark
 QT_QPA_PLATFORMTHEME=gtk3
 ENVDARK
 
-    # xsettingsd (применяет тему без DE)
     mkdir -p ~/.config/xsettingsd
     cat > ~/.config/xsettingsd/xsettingsd.conf << 'XSETTINGS'
 Net/ThemeName "Adwaita-dark"
@@ -832,14 +930,10 @@ Gtk/MenuImages 0
 Gtk/ButtonImages 0
 Gtk/ApplicationPreferDarkTheme 1
 XSETTINGS
-
-    log "GTK тёмная тема настроена"
 }
 
-# ===================== АВТОЗАПУСК ТЕМЫ ЧЕРЕЗ GSETTINGS =====================
 apply_dark_theme_now() {
-    log "Применение тёмной темы через gsettings..."
-
+    log "Применение тёмной темы..."
     if command -v gsettings &>/dev/null; then
         gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark' 2>/dev/null || true
         gsettings set org.gnome.desktop.interface gtk-theme 'Adwaita-dark' 2>/dev/null || true
@@ -847,7 +941,6 @@ apply_dark_theme_now() {
         gsettings set org.gnome.desktop.interface font-name 'JetBrains Mono 11' 2>/dev/null || true
     fi
 
-    # Экспортируем в оболочку
     for shellrc in ~/.bashrc ~/.zshrc; do
         [ -f "$shellrc" ] || continue
         if ! grep -q "GTK_THEME=Adwaita-dark" "$shellrc"; then
@@ -860,27 +953,19 @@ apply_dark_theme_now() {
     done
 }
 
-# ===================== LF (ТЁМНЫЕ ЦВЕТА + ЧИТАЕМЫЕ) =====================
+# ===================== LF (СИНХРОНИЗИРОВАНО С ALACRITTY) =====================
 create_lf_config() {
-    log "Создание конфига lf с тёмной темой..."
+    log "Создание конфига lf..."
     mkdir -p ~/.config/lf
 
-    # Главный конфиг
     cat > ~/.config/lf/lfrc << 'LFRC'
-# LF File Manager Config — тёплый монохром
-
 set ratios 1:2:3
 set hidden true
 set ignorecase true
 set icons false
 set drawbox true
 set number false
-set relativenumber false
-set scrolloff 10
-set info size
-set timefmt "2006-01-02 15:04"
-
-# Раскраска через ~/.config/lf/colors и ~/.config/lf/icons
+set scrolloff 5
 
 map <enter> open
 map D delete
@@ -919,87 +1004,155 @@ map A mkdir
 map N mkfile
 LFRC
 
-    # МОНОХРОМНЫЕ ЦВЕТА для lf — читаемо на тёплом чёрном фоне
-    # Формат: <паттерн> <ANSI цвет>
-    # Коды: 90=серый(тёмный) 37=светло-серый 97=белый 33=жёлтый 1=жирный 4=подчёркнутый
+    # Цвета LF — используем ANSI индексы, которые теперь имеют разные оттенки в Alacritty
+    # 0=фон 1=8a81 2=6a63 3=d5cd 4=5a54 5=9a90 6=4a45 7=b5ad(text)
+    # 8=3a36 9=a89e 10=8a81(bright) 11=f5ef(accent) 12=7a72 13=c5bd 14=6a63 15=f5ef
     cat > ~/.config/lf/colors << 'LFCOLORS'
-# Тёплый монохром для lf
-# Все элементы читаемо на #0c0b0a
+# Формат: <паттерн> <ANSI escape>
+# Используем 16-цветную ANSI палитру (см. alacritty.toml)
 
-# Директории — жирный светлый
-di      01;97
+# Директории — жирный акцент (bright white = f5efe6)
+di      01;15
 
-# Ссылки
-ln      04;37
-or      04;90
+# Символические ссылки — курсив светло-серый
+ln      03;13
 
-# Файлы
-fi      00;37
+# Битые ссылки — подчёркнутый тёмно-серый
+or      04;08
 
-# Исполняемые
-ex      01;93
+# Обычные файлы — обычный текст (b5ada6)
+fi      00;07
 
-# Специальные
-pi      33
-so      33
-do      33
-bd      33
-cd      33
-su      01;93
-sg      01;93
-tw      01;93
-st      01;93
-ow      37
+# Исполняемые — жирный кремовый акцент
+ex      01;11
 
-# Архивы — тусклый белый
-*.tar   00;93
-*.tgz   00;93
-*.zip   00;93
-*.gz    00;93
-*.bz2   00;93
-*.xz    00;93
-*.7z    00;93
-*.rar   00;93
+# Спец. файлы
+pi      00;03
+so      00;03
+do      00;03
+bd      00;06
+cd      00;06
+su      01;09
+sg      01;10
+tw      01;15
+st      01;12
+ow      00;13
 
-# Медиа — светло-серый
-*.jpg   00;37
-*.jpeg  00;37
-*.png   00;37
-*.gif   00;37
-*.mp4   00;37
-*.mkv   00;37
-*.avi   00;37
-*.mp3   00;37
-*.flac  00;37
-*.ogg   00;37
+# ─── Архивы (тёплый жёлтый оттенок yellow = d5cdc4) ───
+*.tar   00;03
+*.tgz   00;03
+*.zip   00;03
+*.gz    00;03
+*.bz2   00;03
+*.xz    00;03
+*.7z    00;03
+*.rar   00;03
+*.deb   00;03
+*.rpm   00;03
 
-# Документы
-*.pdf   00;97
-*.md    00;97
-*.txt   00;37
+# ─── Изображения (светло-серый bright cyan = 6a635a) ───
+*.jpg   00;13
+*.jpeg  00;13
+*.png   00;13
+*.gif   00;13
+*.bmp   00;13
+*.svg   00;13
+*.webp  00;13
+*.ico   00;13
 
-# Код — жирный светлый
-*.c     01;37
-*.cpp   01;37
-*.h     01;37
-*.py    01;37
-*.js    01;37
-*.ts    01;37
-*.rs    01;37
-*.go    01;37
-*.sh    01;93
+# ─── Видео (magenta = 9a9086) ───
+*.mp4   00;05
+*.mkv   00;05
+*.avi   00;05
+*.mov   00;05
+*.wmv   00;05
+*.webm  00;05
+*.m4v   00;05
+
+# ─── Аудио (bright magenta = c5bdb2) ───
+*.mp3   00;13
+*.flac  00;13
+*.ogg   00;13
+*.wav   00;13
+*.m4a   00;13
+*.aac   00;13
+
+# ─── Документы (bright yellow = f5efe6 акцент) ───
+*.pdf   01;11
+*.epub  01;11
+*.mobi  01;11
+*.md    00;11
+*.rst   00;11
+*.txt   00;07
+*.doc   00;11
+*.docx  00;11
+*.odt   00;11
+
+# ─── Код (жирный текст, разные оттенки) ───
+*.c     01;07
+*.cpp   01;07
+*.cc    01;07
+*.h     01;07
+*.hpp   01;07
+*.py    01;07
+*.js    01;07
+*.ts    01;07
+*.jsx   01;07
+*.tsx   01;07
+*.rs    01;07
+*.go    01;07
+*.rb    01;07
+*.php   01;07
+*.java  01;07
+*.kt    01;07
+*.swift 01;07
+*.lua   01;07
+
+# ─── Скрипты (bright yellow = акцент) ───
+*.sh    01;11
+*.bash  01;11
+*.zsh   01;11
+*.fish  01;11
+
+# ─── Конфиги (bright white тусклый) ───
+*.conf  00;13
+*.cfg   00;13
+*.toml  00;13
+*.yaml  00;13
+*.yml   00;13
+*.json  00;13
+*.xml   00;13
+*.ini   00;13
+
+# ─── Веб (green = 6a635a тусклый) ───
+*.html  00;02
+*.htm   00;02
+*.css   00;02
+*.scss  00;02
+*.sass  00;02
+
+# ─── Логи (dim) ───
+*.log   00;06
+*.bak   00;06
+*.old   00;06
+*.tmp   00;06
+
+# ─── Данные ───
+*.csv   00;07
+*.sql   00;07
+*.db    00;06
 LFCOLORS
 
-    # Настраиваем LS_COLORS для всей системы (для ls, lf, grep и т.д.)
-    if ! grep -q "LS_COLORS.*01;97" ~/.bashrc; then
+    # LS_COLORS для ls (тоже 16-цветная палитра, синхронизирована)
+    if ! grep -q "# LS_COLORS монохром" ~/.bashrc; then
         cat >> ~/.bashrc << 'BASHRC_LS'
 
-# Монохромные LS_COLORS
-export LS_COLORS="di=01;97:ln=04;37:so=33:pi=33:ex=01;93:bd=33;01:cd=33;01:su=37;41:sg=30;43:tw=30;42:ow=34;42:st=37;44:*.tar=00;93:*.tgz=00;93:*.zip=00;93:*.gz=00;93:*.mp3=00;37:*.mp4=00;37:*.png=00;37:*.jpg=00;37:*.pdf=00;97:*.md=00;97:*.c=01;37:*.py=01;37:*.sh=01;93"
+# LS_COLORS монохром — синхронизировано с Alacritty
+export LS_COLORS="di=01;97:ln=03;96:or=04;90:so=33:pi=33:ex=01;93:bd=36:cd=36:su=01;33:sg=01;32:tw=01;97:st=01;34:ow=95:*.tar=33:*.tgz=33:*.zip=33:*.gz=33:*.bz2=33:*.xz=33:*.7z=33:*.rar=33:*.jpg=95:*.jpeg=95:*.png=95:*.gif=95:*.svg=95:*.mp4=35:*.mkv=35:*.avi=35:*.mov=35:*.webm=35:*.mp3=95:*.flac=95:*.ogg=95:*.wav=95:*.pdf=01;93:*.epub=01;93:*.md=93:*.rst=93:*.txt=37:*.c=01;37:*.cpp=01;37:*.h=01;37:*.py=01;37:*.js=01;37:*.ts=01;37:*.rs=01;37:*.go=01;37:*.rb=01;37:*.sh=01;93:*.bash=01;93:*.conf=95:*.toml=95:*.yaml=95:*.json=95:*.html=32:*.css=32:*.log=36:*.bak=36"
 BASHRC_LS
     fi
 
-    log "lf с монохромной темой настроен"
+    log "lf настроен (палитра синхронизирована с Alacritty)"
 }
 
 # ===================== СЕССИЯ DWM =====================
@@ -1078,47 +1231,42 @@ create_xinitrc() {
     log "Создание .xinitrc..."
     cat > ~/.xinitrc << 'XINITRC'
 #!/bin/sh
-# ─── DWM startup ───
 
-# 1. Курсор
 xsetroot -cursor_name left_ptr &
 xsetroot -solid "#0c0b0a" &
 
-# 2. Тёмная тема через xsettingsd (КРИТИЧНО для GTK)
+# GTK тёмная тема
 xsettingsd &
-
-# 3. GTK через gsettings
 sleep 0.5
 gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark' 2>/dev/null &
 gsettings set org.gnome.desktop.interface gtk-theme 'Adwaita-dark' 2>/dev/null &
 gsettings set org.gnome.desktop.interface icon-theme 'Adwaita' 2>/dev/null &
 
-# 4. Экспорт переменных для дочерних процессов
 export GTK_THEME=Adwaita-dark
 export QT_QPA_PLATFORMTHEME=gtk3
 export QT_STYLE_OVERRIDE=Adwaita-Dark
-export _JAVA_OPTIONS='-Dawt.useSystemAAFontSettings=on -Dswing.aatext=true -Dswing.defaultlaf=com.sun.java.swing.plaf.gtk.GTKLookAndFeel'
+export _JAVA_OPTIONS='-Dawt.useSystemAAFontSettings=on -Dswing.aatext=true'
 
-# 5. Мышь без акселерации
+# Мышь без акселерации
 sleep 1
 for id in $(xinput list --id-only 2>/dev/null); do
     xinput set-prop "$id" "libinput Accel Profile Enabled" 0 1 2>/dev/null
     xinput set-prop "$id" "libinput Accel Speed" 0 2>/dev/null
 done &
 
-# 6. Композитор
+# Композитор
 picom --config ~/.config/picom/picom.conf -b 2>/dev/null &
 
-# 7. Уведомления и polkit
+# Уведомления и polkit
 dunst &
 lxsession &
 
-# 8. Трей-приложения (появятся в systray патча DWM)
+# Трей
 sleep 2
 nm-applet &
 blueman-applet 2>/dev/null &
 
-# 9. Автоблокировка через 10 минут
+# Автоблокировка
 if command -v xidlehook &>/dev/null; then
     xidlehook \
         --not-when-fullscreen \
@@ -1126,26 +1274,29 @@ if command -v xidlehook &>/dev/null; then
         --timer 600 "$HOME/bin/lockscreen" '' &
 fi
 
-# 10. Статус-бар (ЧАСЫ и т.д. в правой части бара)
+# Статус-бар
 "$HOME/suckless/dwm-statusbar.sh" &
 
-# 11. Ночной режим (если systemd не поднял — запускаем)
+# ─── Nightshift: гарантированный запуск ───
+# 1. Пробуем через systemd (основной способ)
+systemctl --user start nightshift.service 2>/dev/null
+
+# 2. Проверяем — если не запустился, запускаем напрямую
+sleep 1
 if ! pgrep -f "$HOME/bin/nightshift" >/dev/null 2>&1; then
     "$HOME/bin/nightshift" &
 fi
 
-# 12. Запуск DWM
 exec dwm
 XINITRC
     chmod +x ~/.xinitrc
-    log ".xinitrc создан"
 }
 
 # ===================== ШПАРГАЛКА =====================
 create_cheatsheet() {
     cat > ~/dwm-keybinds.txt << 'CHEAT'
 ╔══════════════════════════════════════════════════════════════╗
-║                    DWM KEYBINDINGS v11                       ║
+║                    DWM KEYBINDINGS v11.2                     ║
 ╠══════════════════════════════════════════════════════════════╣
 ║  Super + Enter        — Терминал                             ║
 ║  Super + D            — dmenu                                ║
@@ -1164,11 +1315,10 @@ create_cheatsheet() {
 ║  Ctrl+Super+Shift+Q   — Выйти из DWM                         ║
 ╚══════════════════════════════════════════════════════════════╝
 
-Диагностика:
-  ~/bin/lockscreen          — блокировка
-  nightshift-reset          — сбросить экран
-  systemctl --user status nightshift — статус ночного режима
-  ps aux | grep statusbar   — проверить статус-бар
+Nightshift:
+  systemctl --user status nightshift     — статус
+  systemctl --user restart nightshift    — перезапустить
+  nightshift-reset                       — сбросить экран
 CHEAT
 }
 
@@ -1177,32 +1327,30 @@ run_diagnostics() {
     echo ""
     echo -e "${CYAN}═══════════ ДИАГНОСТИКА ═══════════${NC}"
 
-    # i3lock
+    if pgrep -f "$HOME/bin/nightshift" >/dev/null 2>&1; then
+        log "✓ Nightshift РАБОТАЕТ (PID: $(pgrep -f "$HOME/bin/nightshift"))"
+    else
+        warn "✗ Nightshift не запущен — попробуйте: ~/bin/nightshift &"
+    fi
+
+    if systemctl --user is-enabled nightshift.service &>/dev/null; then
+        log "✓ Автозапуск Nightshift ВКЛЮЧЁН (systemd)"
+    else
+        warn "✗ Автозапуск не включён — systemctl --user enable nightshift"
+    fi
+
     if command -v i3lock &>/dev/null; then
         if i3lock --help 2>&1 | grep -q "insidecolor"; then
-            log "i3lock-color установлен (красивая блокировка)"
+            log "✓ i3lock-color установлен"
         else
-            warn "Установлен обычный i3lock (простая блокировка)"
+            warn "! i3lock (обычный) установлен, i3lock-color лучше"
         fi
     else
-        err "i3lock НЕ установлен!"
+        err "✗ i3lock НЕ установлен!"
     fi
 
-    # imagemagick
-    command -v convert &>/dev/null && log "imagemagick установлен" || warn "imagemagick не установлен"
-
-    # xsettingsd
-    command -v xsettingsd &>/dev/null && log "xsettingsd установлен (тёмная тема)" || warn "xsettingsd не установлен"
-
-    # темы GTK
-    if [ -d /usr/share/themes/Adwaita-dark ]; then
-        log "Тема Adwaita-dark установлена"
-    else
-        warn "Тема Adwaita-dark отсутствует! Установите gnome-themes-extra"
-    fi
-
-    # Статус-бар
-    [ -x ~/suckless/dwm-statusbar.sh ] && log "Статус-бар готов" || warn "Статус-бар не найден!"
+    [ -f ~/.config/alacritty/alacritty.toml ] && log "✓ Alacritty конфиг создан" || warn "✗ Alacritty конфиг отсутствует"
+    [ -f ~/.config/lf/colors ] && log "✓ LF цвета настроены" || warn "✗ LF цвета отсутствуют"
 
     echo -e "${CYAN}═══════════════════════════════════${NC}"
     echo ""
@@ -1212,8 +1360,8 @@ run_diagnostics() {
 main() {
     echo ""
     echo -e "${CYAN}╔══════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║   DWM Warm Monochrome v11.0                 ║${NC}"
-    echo -e "${CYAN}║   Fix: lockscreen · clock · GTK dark · lf   ║${NC}"
+    echo -e "${CYAN}║   DWM Warm Monochrome v11.2                 ║${NC}"
+    echo -e "${CYAN}║   16 оттенков + Nightshift автозапуск       ║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
 
@@ -1229,7 +1377,6 @@ main() {
     create_telegram_launcher
     create_alacritty_config
     create_mouse_config
-    create_nightshift
     create_statusbar
     create_xinitrc
     create_picom_config
@@ -1240,6 +1387,9 @@ main() {
     create_session
     create_cheatsheet
 
+    # Nightshift — ПОСЛЕДНИМ, чтобы всё было настроено
+    create_nightshift
+
     run_diagnostics
 
     echo ""
@@ -1247,17 +1397,13 @@ main() {
     echo -e "${GREEN}║          УСТАНОВКА ЗАВЕРШЕНА!                ║${NC}"
     echo -e "${GREEN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
-    info "Исправлено в v11:"
-    echo "  ✓ Блокировка — fallback на i3lock если i3lock-color не собрался"
-    echo "  ✓ Часы в баре — статус-бар с задержкой + все проверки"
-    echo "  ✓ Тёмная тема — xsettingsd + gsettings + GTK env переменные"
-    echo "  ✓ LF — читаемая монохромная цветовая схема"
+    info "Что нового в v11.2:"
+    echo "  ✓ Alacritty — 16+ различающихся оттенков серого"
+    echo "  ✓ LF — цвета синхронизированы с терминалом"
+    echo "  ✓ Nightshift — автозапуск включён (systemd + fallback)"
+    echo "  ✓ Nightshift — запущен прямо сейчас"
     echo ""
-    warn "ВАЖНО: перезагрузите ПК! Только так GTK темы применятся ко всем приложениям."
-    echo ""
-    info "Проверить сейчас:"
-    echo "  ~/bin/lockscreen          → блокировка"
-    echo "  ~/suckless/dwm-statusbar.sh → часы (запустите вручную и посмотрите вывод xsetroot)"
+    warn "Перезагрузите ПК: reboot"
     echo ""
 }
 
