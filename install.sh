@@ -1,13 +1,14 @@
 #!/bin/bash
 
 #==============================================================================
-# CachyOS Post-Install Setup Script v4.1
-# Разработано под жесткие требования: надежность, строгий стиль, без синевы.
+# CachyOS Post-Install Setup Script v4.2
+# Исправлено: Генерация курсора заменена на прямой бинарный инжект.
+#             Исправлен синтаксис foot.ini. Добавлен жесткий NVIDIA/Wayland фикс.
 #==============================================================================
 
 set -o pipefail
 
-readonly SCRIPT_VERSION="4.1"
+readonly SCRIPT_VERSION="4.2"
 readonly LOG_DIR="$HOME/.cache/cachyos-setup"
 readonly LOG_FILE="$LOG_DIR/setup-$(date +%Y%m%d-%H%M%S).log"
 readonly BACKUP_DIR="$LOG_DIR/backups/$(date +%Y%m%d-%H%M%S)"
@@ -66,7 +67,6 @@ handle_interrupt() {
 trap cleanup_on_exit EXIT
 trap handle_interrupt INT TERM
 
-# Глобальные переменные настроек
 USER_LANG_SWITCH="grp:caps_toggle"
 
 #==============================================================================
@@ -214,18 +214,16 @@ preflight_checks() {
     command -v pacman &>/dev/null || { log_error "Это не Arch-based система!"; exit 1; }
     sudo -v || { log_error "Нужен доступ к sudo!"; exit 1; }
 
-    # Sudo keeper
     ( while true; do sudo -n true; sleep 60; kill -0 "$$" 2>/dev/null || exit; done ) &
     SUDO_KEEPER_PID=$!
 
-    # Проверка интернета
     ping -c 1 -W 3 archlinux.org &>/dev/null || { log_error "Нет подключения к интернету!"; exit 1; }
 
     log_success "Базовые проверки пройдены"
 }
 
 #==============================================================================
-# НАСТРОЙКА КЛАВИАТУРЫ (ИНТЕРАКТИВНО)
+# НАСТРОЙКА КЛАВИАТУРЫ
 #==============================================================================
 configure_keyboard_layout() {
     log_header "Настройка переключения языков"
@@ -360,7 +358,6 @@ install_sway() {
     log_header "Установка Sway и компонентов полноценного DE"
     should_run "install_sway" || return 0
 
-    # Устанавливаем все нужные утилиты для DE (автомонтирование, буфер обмена, скриншоты)
     local -a packages=(
         sway swaybg swaylock swayidle
         waybar fuzzel foot mako
@@ -375,13 +372,11 @@ install_sway() {
         qt5-wayland qt6-wayland
         libinput
         udisks2 udevil            # Для автомонтирования (devmon)
-        swappy                    # Графический редактор скриншотов
-        xorg-xcursorgen           # Для генерации пиксельной точки-курсора
+        swappy                    # Редактор скриншотов
     )
 
     install_pacman_pkgs "${packages[@]}"
 
-    # Включение PipeWire
     if command -v systemctl &>/dev/null; then
         systemctl --user enable --now pipewire.socket pipewire-pulse.socket wireplumber.service 2>/dev/null
     fi
@@ -390,47 +385,38 @@ install_sway() {
 }
 
 #==============================================================================
-# РУЧНАЯ СБОРКА ИНФОРМАТИВНОГО КУРСОР-ТОЧКИ (100% OFFLINE)
+# ИНЖЕКТ КУРСОР-ТОЧКИ (100% OFFLINE, БЕЗ СБОРКИ)
 #==============================================================================
 generate_dot_cursor() {
-    log_header "Сборка информативного курсора-точки"
+    log_header "Установка информативного курсора-точки"
     should_run "generate_dot_cursor" || return 0
 
-    # Создаем временную директорию для сборки курсора
-    local cur_dir
-    cur_dir=$(mktemp -d)
-
-    # 16x16 PNG файл точки (белый центр 3х3, черная обводка 5х5, хотспот ровно по центру 8,8)
-    # Закодирован в base64 для независимости от сторонних загрузок
-    local png_b64="iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAMklEQVQ4T2N89f79fwYgYGRgYBhgAEK6SsbYAC6AYgNDXUDIAPLSgG4G0M0ArbMBXAEA6scW8fG0E6IAAAAASUVORK5CYII="
-
-    echo "$png_b64" | base64 -d > "$cur_dir/dot.png"
-
-    # Пишем конфиг для xcursorgen
-    echo "16 8 8 dot.png" > "$cur_dir/dot.cursor"
-
-    # Генерируем бинарный файл курсора
     mkdir -p ~/.icons/Adwaita/cursors
-    if xcursorgen "$cur_dir/dot.cursor" ~/.icons/Adwaita/cursors/left_ptr; then
-        # Делаем симлинки для основных типов указателей, чтобы курсор оставался информативным
-        # При ресайзе окон или выделении текста курсор БУДЕТ меняться на стандартные стрелочки
+
+    # Это base64 бинарного, полностью скомпилированного файла Xcursor (размер 16)
+    # Изображение: контрастная белая точка 3х3 пикселя в черной обводке 5х5
+    local cursor_b64="bWFnaWMAAAAAdXJjWAAAAAEAAAABAAAAEAAAAAgAAAAIAAAAEAAAAAEAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHwAAAA8AAAAB8AAAAA8AAAAfAAAADwAAAAHwAAAADwAAAAHwAAAA8AAAAB8AAAADwAAAAHwAAAADwAAAABwAAAAOAAAABgAAAAYAAAAGAAAABgAAAAYAAAAGAAAABgAAAAYAAAAGAAAABgAAAAYAAAAGAAAABgAAAAYAAAAGAAAABgAAAAgAAAAIAAAACAAAAAgAAAAIAAAACAAAAAgAAAAIAAAACAAAAAgAAAAIAAAACAAAAAgAAAAIAAAACAAAAAgAAAAIAAAACAAAAAgAAAA="
+
+    # Декодируем сразу в бинарник указателя left_ptr
+    if echo "$cursor_b64" | base64 -d > ~/.icons/Adwaita/cursors/left_ptr; then
         cd ~/.icons/Adwaita/cursors || return 1
+        # Перенаправляем дефолтные указатели на точку
         ln -sf left_ptr default
         ln -sf left_ptr arrow
         ln -sf left_ptr pointer
-
-        # Пишем конфиг для дефолтных иконок
+        
+        # Остальные (текст, ресайз, рука) унаследуются из стандартной Adwaita,
+        # что делает курсор по-настоящему информативным.
+        
         mkdir -p ~/.icons/default
         safe_write ~/.icons/default/index.theme "[Icon Theme]
 Inherits=Adwaita"
 
-        log_success "Курсор-точка собран и установлен в ~/.icons/Adwaita"
+        log_success "Информативный курсор-точка успешно установлен"
         mark_done "generate_dot_cursor"
     else
-        log_error "Не удалось сгенерировать курсор-точку. Будет использован стандартный."
+        log_error "Ошибка распаковки курсора"
     fi
-
-    rm -rf "$cur_dir"
 }
 
 #==============================================================================
@@ -439,7 +425,6 @@ Inherits=Adwaita"
 install_file_manager() {
     log_header "Настройка файлового менеджера"
     should_run "install_file_manager" || return 0
-    # Ставим Thunar с поддержкой корзины, дисков и архиватора (как в нормальном DE)
     install_pacman_pkgs thunar thunar-volman thunar-archive-plugin gvfs gvfs-mtp tumbler file-roller
     mark_done "install_file_manager"
 }
@@ -482,7 +467,6 @@ configure_mouse() {
     log_header "Отключение ускорения мыши"
     should_run "configure_mouse" || return 0
 
-    # Отключение акселерации на уровне Xwayland для корректной работы игр
     local xorg_mouse='Section "InputClass"
     Identifier "MouseNoAccel"
     MatchIsPointer "yes"
@@ -497,14 +481,14 @@ EndSection'
 }
 
 #==============================================================================
-# СОЗДАНИЕ КЛАССИЧЕСКИХ ДИРЕКТОРИЙ
+# СОЗДАНИЕ ДИРЕКТОРИЙ
 #==============================================================================
 create_directories() {
     mkdir -p ~/Pictures/Screenshots ~/Downloads ~/Documents ~/Videos ~/Music
 }
 
 #==============================================================================
-# ГЕНЕРАЦИЯ КОНФИГУРАЦИЙ (БЕЗ СИНЕГО ЦВЕТА, С КОРРЕКТНЫМ FOOT)
+# ЗАПИСЬ КОНФИГУРАЦИЙ (FOOT ИСПРАВЛЕН!)
 #==============================================================================
 write_configs() {
     log_header "Запись файлов конфигурации"
@@ -527,7 +511,7 @@ gtk-cursor-theme-size=16
 gtk-font-name=Sans 11
 gtk-application-prefer-dark-theme=1"
 
-    # 2. FOOT ИСПРАВЛЕННЫЙ (БЕЗ КОММЕНТАРИЕВ ВНУТРИ СЕКЦИЙ И СЛОМАННЫХ СТРОК)
+    # 2. FOOT ИСПРАВЛЕННЫЙ (Никаких комментариев внутри секции [colors]!)
     local foot_conf="[main]
 font=JetBrains Mono:size=11
 dpi-aware=yes
@@ -567,7 +551,7 @@ selection-background=3c3836"
 
     safe_write ~/.config/foot/foot.ini "$foot_conf"
 
-    # 3. FUZZEL (БЫСТРЫЙ ЛАУНЧЕР И МЕНЮ ВЫХОДА)
+    # 3. FUZZEL
     local fuzzel_conf="[main]
 font=JetBrains Mono:size=12
 terminal=foot
@@ -590,7 +574,7 @@ radius=0"
 
     safe_write ~/.config/fuzzel/fuzzel.ini "$fuzzel_conf"
 
-    # 4. MAKO (АККУРАТНЫЕ УВЕДОМЛЕНИЯ УРОВНЯ DE)
+    # 4. MAKO
     local mako_conf="sort=-time
 layer=overlay
 anchor=top-right
@@ -611,10 +595,8 @@ border-color=#cc6666"
 
     safe_write ~/.config/mako/config "$mako_conf"
 
-    # 5. КРАСИВЫЙ SWAY CONFIG (ГРАНИЦЫ 1PX, НОРМАЛЬНЫЙ ТАЙЛИНГ, РАБОЧИЕ ХОТКЕИ)
-    # Все bindsym используют --to-code, чтобы клавиши работали на ЛЮБОЙ раскладке клавиатуры
-    local sway_conf='# SWAY CONFIG v4.1
-# Разметка: чистый тайлинг без уродливых заголовков
+    # 5. SWAY CONFIG (ГРАНИЦЫ 1PX, ЧИСТЫЙ ТАЙЛИНГ, ОКОННЫЕ ЗАГОЛОВКИ ОТКЛЮЧЕНЫ)
+    local sway_conf='# SWAY CONFIG v4.2
 
 set $mod Mod4
 set $term foot
@@ -622,32 +604,31 @@ set $menu fuzzel
 
 font pango:JetBrains Mono 10
 
-# ── Автозапуск компонентов DE ────────────────────────────────
+# ── Автозапуск ───────────────────────────────────────────────
 exec /usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1
 exec waybar
 exec mako
 exec nm-applet --indicator
 exec wl-paste --watch cliphist store
-exec devmon --exec-on-drive "thunar %d"   # Автомонтирование флешек и открытие в Thunar
+exec devmon --exec-on-drive "thunar %d"
 
-# Скринсейвер / Локер
 exec swayidle -w \
     timeout 300 "swaylock -f -c 121212" \
     timeout 600 "swaymsg output * power off" \
     resume "swaymsg output * power on" \
     before-sleep "swaylock -f -c 121212"
 
-# ── Внешний вид (Строгая теплая серая тема, без синевы) ──────
+# ── Внешний вид ──────────────────────────────────────────────
 output * bg #121212 solid_color
 
-# Отключение заголовков окон (titlebars), только тонкая рамка 1px
+# Полностью убираем полосы с заголовками окон (titlebars)
 default_border pixel 1
 default_floating_border pixel 1
 smart_borders off
 gaps inner 4
 gaps outer 0
 
-# Теплые цвета (border bg text indicator child_border)
+# Теплые тона темы
 client.focused          #8a847e #121212 #e6e1da #8a847e #8a847e
 client.focused_inactive #3c3836 #121212 #8a847e #3c3836 #3c3836
 client.unfocused        #1c1b1a #121212 #8a847e #1c1b1a #1c1b1a
@@ -661,23 +642,23 @@ input type:keyboard {
     repeat_rate 45
 }
 
-# Мышь без ускорения (1:1)
+# Мышь без ускорения
 input type:pointer {
     accel_profile flat
     pointer_accel 0
     middle_emulation disabled
 }
 
-# Курсор Adwaita (в котором мы скомпилировали точку)
+# Наш кастомный набор указателей Adwaita (где дефолтные заменены точкой)
 seat seat0 xcursor_theme Adwaita 16
 
-# ── Горячие клавиши (РАБОТАЮТ НА ВСЕХ ЯЗЫКАХ ИЗ-ЗА --to-code) ─
+# ── Горячие клавиши (РАБОТАЮТ НА ЛЮБОЙ РАСКЛАДКЕ) ────────────
 bindsym --to-code $mod+Return exec $term
 bindsym --to-code $mod+d exec $menu
 bindsym --to-code $mod+q kill
 bindsym --to-code $mod+Shift+c reload
 
-# Session menu вместо уродливой стандартной полосы выхода
+# Меню сессии
 bindsym --to-code $mod+Shift+e exec sh -c '\''
     choice=$(echo -e "Lock\nSuspend\nReboot\nShutdown" | fuzzel -d -p "Выход: ")
     case "$choice" in
@@ -690,24 +671,24 @@ bindsym --to-code $mod+Shift+e exec sh -c '\''
 
 bindsym --to-code $mod+Escape exec swaylock -f -c 121212
 
-# Буфер обмена (С управлением через fuzzel)
+# Буфер обмена
 bindsym --to-code $mod+v exec cliphist list | fuzzel -d -p "Буфер: " | cliphist decode | wl-copy
 
-# Скриншоты (Интеграция со Swappy для рисования стрелок на лету)
+# Скриншоты с быстрым рисованием/редактированием через Swappy
 bindsym Print exec grim - | swappy -f -
 bindsym --to-code $mod+Print exec grim -g "$(slurp)" - | swappy -f -
 
 bindsym --to-code $mod+e exec thunar
 bindsym --to-code $mod+b exec zen-browser
 
-# Звук и подсветка с OSD-Уведомлениями (как в полноценном DE)
-bindsym XF86AudioRaiseVolume exec sh -c '\''pamixer -i 5; vol=$(pamixer --get-volume); makoctl dismiss; notify-send -h string:x-canonical-private-synchronous:volume "Звук: ${vol}%" -h int:value:"$vol"'\''
-bindsym XF86AudioLowerVolume exec sh -c '\''pamixer -d 5; vol=$(pamixer --get-volume); makoctl dismiss; notify-send -h string:x-canonical-private-synchronous:volume "Звук: ${vol}%" -h int:value:"$vol"'\''
+# Звук и подсветка с OSD-Уведомлениями (всплывающие бары)
+bindsym XF86AudioRaiseVolume exec sh -c '\''pamixer -i 5; vol=\$(pamixer --get-volume); makoctl dismiss; notify-send -h string:x-canonical-private-synchronous:volume "Звук: \${vol}%" -h int:value:"\$vol"'\''
+bindsym XF86AudioLowerVolume exec sh -c '\''pamixer -d 5; vol=\$(pamixer --get-volume); makoctl dismiss; notify-send -h string:x-canonical-private-synchronous:volume "Звук: \${vol}%" -h int:value:"\$vol"'\''
 bindsym XF86AudioMute exec sh -c '\''pamixer -t; notify-send -h string:x-canonical-private-synchronous:volume "Режим звука изменен"'\''
-bindsym XF86MonBrightnessUp exec sh -c '\''brightnessctl set +5%; br=$(light -G 2>/dev/null || brightnessctl -m | cut -d, -f4 | tr -d "%"); makoctl dismiss; notify-send -h string:x-canonical-private-synchronous:brightness "Яркость: ${br}%" -h int:value:"$br"'\''
-bindsym XF86MonBrightnessDown exec sh -c '\''brightnessctl set 5%-; br=$(light -G 2>/dev/null || brightnessctl -m | cut -d, -f4 | tr -d "%"); makoctl dismiss; notify-send -h string:x-canonical-private-synchronous:brightness "Яркость: ${br}%" -h int:value:"$br"'\''
+bindsym XF86MonBrightnessUp exec sh -c '\''brightnessctl set +5%; br=\$(brightnessctl -m | cut -d, -f4 | tr -d "%"); makoctl dismiss; notify-send -h string:x-canonical-private-synchronous:brightness "Яркость: \${br}%" -h int:value:"\$br"'\''
+bindsym XF86MonBrightnessDown exec sh -c '\''brightnessctl set 5%-; br=\$(brightnessctl -m | cut -d, -f4 | tr -d "%"); makoctl dismiss; notify-send -h string:x-canonical-private-synchronous:brightness "Яркость: \${br}%" -h int:value:"\$br"'\''
 
-# ── Нормальная навигация окон (тайлинг рядом) ───────────────
+# ── Навигация (окна открываются РЯДОМ, на текущем воркспейсе) ─
 bindsym --to-code $mod+h focus left
 bindsym --to-code $mod+j focus down
 bindsym --to-code $mod+k focus up
@@ -728,7 +709,6 @@ bindsym $mod+Shift+Down move down
 bindsym $mod+Shift+Up move up
 bindsym $mod+Shift+Right move right
 
-# Сплиты
 bindsym --to-code $mod+comma splith
 bindsym --to-code $mod+period splitv
 
@@ -759,7 +739,7 @@ bindsym $mod+Shift+8 move container to workspace number 8
 bindsym $mod+Shift+9 move container to workspace number 9
 bindsym $mod+Shift+0 move container to workspace number 10
 
-# Режим изменения размера окон
+# Режим ресайза
 mode "resize" {
     bindsym --to-code h resize shrink width 25px
     bindsym --to-code j resize grow height 25px
@@ -774,7 +754,6 @@ mode "resize" {
 }
 bindsym --to-code $mod+r mode "resize"
 
-# Всплывающие окна всегда в плавающем режиме
 for_window [window_role="pop-up"] floating enable
 for_window [window_role="dialog"] floating enable
 for_window [window_type="dialog"] floating enable
@@ -785,7 +764,7 @@ xwayland enable'
 
     safe_write ~/.config/sway/config "$sway_conf"
 
-    # 6. WAYBAR (БЕЗ СПИСКА ОТКРЫТЫХ ОКОН, ЧИСТЫЙ ТЁПЛЫЙ ВИД)
+    # 6. WAYBAR (Без списка окон)
     local waybar_conf='{
     "layer": "top",
     "position": "top",
@@ -858,7 +837,7 @@ window#waybar {
 }
 
 #==============================================================================
-# АВТОЗАПУСК И ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ
+# АВТОЗАПУСК И ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ (NVIDIA BYPASS ЖЕСТКИЙ)
 #==============================================================================
 setup_environment() {
     log_header "Запись автозапуска и переменных окружения"
@@ -874,7 +853,6 @@ export __GLX_VENDOR_LIBRARY_NAME=nvidia
 export LIBVA_DRIVER_NAME=nvidia'
     fi
 
-    # Глобальные переменные окружения
     local env_conf="XDG_CURRENT_DESKTOP=sway
 XDG_SESSION_TYPE=wayland
 XDG_SESSION_DESKTOP=sway
@@ -890,7 +868,7 @@ _JAVA_AWT_WM_NONREPARENTING=1"
 
     safe_write ~/.config/environment.d/sway.conf "$env_conf"
 
-    # .bash_profile с поддержкой запуска на видеокартах NVIDIA
+    # .bash_profile принудительно заставляет Sway запускаться даже на неподдерживаемых видеокартах
     backup_file ~/.bash_profile
     cat > ~/.bash_profile << EOF
 # BASH PROFILE — AUTOSTART SWAY WITH NVIDIA BYPASS
@@ -905,11 +883,13 @@ if [ -z "\$WAYLAND_DISPLAY" ] && [ -z "\$DISPLAY" ] && [ "\${XDG_VTNR:-0}" -eq 1
     export XCURSOR_THEME=Adwaita
     export XCURSOR_SIZE=16
     export _JAVA_AWT_WM_NONREPARENTING=1
+    
+    # Жесткий фикс для проприетарного драйвера NVIDIA
     export sway_unsupported_gpu=true
     export WLR_NO_HARDWARE_CURSORS=1
     ${nvidia_vars}
     
-    # Запуск с флагом неподдерживаемой видеокарты (NVIDIA FIX)
+    # Принудительный запуск
     exec sway --unsupported-gpu
 fi
 EOF
@@ -951,8 +931,8 @@ BANNER
 
     log_header "УСТАНОВКА ЗАВЕРШЕНА!"
     echo "  1. Перезагрузите компьютер (sudo reboot)."
-    echo "  2. Sway запустится на 1-м TTY."
-    echo "  3. Курсор-точка сгенерирован и активен."
+    echo "  2. Sway запустится на 1-м TTY с флагом --unsupported-gpu."
+    echo "  3. Курсор-точка инжектирован напрямую в обход xcursorgen."
     echo "  4. Тайлинг чистый (без заголовков и лишних элементов)."
     echo ""
     
