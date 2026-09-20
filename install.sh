@@ -1,6 +1,6 @@
 #!/bin/bash
 # install.sh — DWM окружение на CachyOS/Arch
-# Версия 12.6 — Безопасный CDN-патчинг (User-Agent), DWM 6.4, Gaps, 4px обводка, точный CPU, очистка буфера
+# Версия 12.7 — Зеркала патчей, DWM 6.4, Gaps, 4px обводка, однородный бар, точный CPU, очистка буфера
 
 set -e
 
@@ -103,33 +103,37 @@ install_aur_packages() {
         warn "xidlehook не установлен."
 }
 
-# ===================== УМНЫЙ ОБХОД БЛОКИРОВОК (СКАЧИВАНИЕ ПАТЧЕЙ) =====================
-download_patch() {
-    local url=$1
+# ===================== УМНЫЙ ЗАГРУЗЧИК С ЗЕРКАЛАМИ =====================
+download_patch_with_fallback() {
+    local name=$1
     local out=$2
-    # Маскируемся под реальный браузер на Linux, чтобы обойти анти-бот лимиты
-    local ua="Mozilla/5.0 (X11; Linux x86_64; rv:119.0) Gecko/20100101 Firefox/119.0"
+    shift 2
+    local urls=("$@")
+    # Маскируемся под браузер, чтобы обойти Cloudflare и блокировки suckless
+    local ua="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
-    info "Загрузка патча: $out..."
-    rm -f "$out"
-
-    # Первая попытка через curl
-    if curl -sL -A "$ua" --connect-timeout 10 --retry 2 -o "$out" "$url" 2>/dev/null; then
-        if grep -q -E "^(diff|---|\+\+\+)" "$out" 2>/dev/null; then
-            log "Патч $out успешно получен!"
-            return 0
+    info "Загрузка патча: $name..."
+    for url in "${urls[@]}"; do
+        info "Пробуем источник: $url"
+        rm -f "$out"
+        
+        # Пробуем скачать через curl
+        if curl -sL -A "$ua" --connect-timeout 8 --retry 1 -o "$out" "$url" 2>/dev/null; then
+            if grep -q -E "^(diff|---|\+\+\+)" "$out" 2>/dev/null; then
+                log "Успешно скачан: $name"
+                return 0
+            fi
         fi
-    fi
-
-    # Резервная попытка через wget
-    if wget -q -U "$ua" --timeout=10 --tries=2 -O "$out" "$url" 2>/dev/null; then
-        if grep -q -E "^(diff|---|\+\+\+)" "$out" 2>/dev/null; then
-            log "Патч $out успешно получен (резервный способ)!"
-            return 0
+        
+        # Резервный запуск через wget
+        if wget -q -U "$ua" --timeout=8 --tries=1 -O "$out" "$url" 2>/dev/null; then
+            if grep -q -E "^(diff|---|\+\+\+)" "$out" 2>/dev/null; then
+                log "Успешно скачан через wget: $name"
+                return 0
+            fi
         fi
-    fi
-
-    err "Не удалось загрузить рабочий патч $out (сервер отклонил запрос). Повторите попытку позже."
+    done
+    err "Критическая ошибка: Не удалось скачать рабочий патч $name. Сервер блокирует запросы. Попробуйте VPN или запустите скрипт позже."
 }
 
 # ===================== СБОРКА DWM =====================
@@ -147,9 +151,21 @@ build_dwm() {
     rm dwm-6.4.tar.gz
     cd dwm
 
-    # Скачивание с умным обходом блокировок
-    download_patch "https://dwm.suckless.org/patches/systray/dwm-systray-6.4.diff" "dwm-systray.patch"
-    download_patch "https://dwm.suckless.org/patches/fullgaps/dwm-fullgaps-6.4.diff" "dwm-gaps.patch"
+    # Массив ультра-надежных зеркал (Включает оригинальный сайт, Wayback Machine и CDN jsDelivr)
+    systray_mirrors=(
+        "https://dwm.suckless.org/patches/systray/dwm-systray-6.4.diff"
+        "https://web.archive.org/web/20230528151554/https://dwm.suckless.org/patches/systray/dwm-systray-6.4.diff"
+        "https://cdn.jsdelivr.net/gh/bakkeby/patches@master/dwm/dwm-systray-6.4.diff"
+    )
+
+    gaps_mirrors=(
+        "https://dwm.suckless.org/patches/fullgaps/dwm-fullgaps-6.4.diff"
+        "https://web.archive.org/web/20230528151554/https://dwm.suckless.org/patches/fullgaps/dwm-fullgaps-6.4.diff"
+        "https://cdn.jsdelivr.net/gh/bakkeby/patches@master/dwm/dwm-fullgaps-6.4.diff"
+    )
+
+    download_patch_with_fallback "systray" "dwm-systray.patch" "${systray_mirrors[@]}"
+    download_patch_with_fallback "gaps" "dwm-gaps.patch" "${gaps_mirrors[@]}"
 
     log "Наложение патча нативного трея..."
     patch -p1 -l --forward < dwm-systray.patch || err "Не удалось применить патч нативного трея!"
@@ -162,7 +178,7 @@ build_dwm() {
 
     # Пишем оптимизированный config.h
     cat > config.h << 'DWMCONFIG'
-/* DWM config.h — v12.6 (Warm Monochrome) */
+/* DWM config.h — v12.7 (Warm Monochrome) */
 
 static const unsigned int borderpx       = 4;   /* Четкая жирная обводка 4px */
 static const unsigned int snap           = 16;
