@@ -1,22 +1,16 @@
 #!/bin/bash
 
 #==============================================================================
-# CachyOS Post-Install Setup Script v3
+# CachyOS Post-Install Setup Script v3.2
 # Приоритеты: надёжность → производительность → практичность → красота
-# Изменения v3:
-#   - Приоритет pacman над AUR (zen-browser, proton-cachyos и др. из репо)
-#   - Исправлен multilib (раскомментирование вместо дублирования)
-#   - Исправлен environment.d (переменные экспортируются в .bash_profile)
-#   - Полноценная система состояний для всех шагов
-#   - Убраны ANSI-коды из лог-файла
-#   - Безопасный trap RETURN, обработка SIGINT
-#   - Проверка синтаксиса sway config перед записью
-#   - Точный подсчёт ошибок/предупреждений
+# Изменения v3.2:
+#   - CapsLock работает как обычная клавиша (убран caps:escape)
+#   - Остальные раскладки (US/RU, Alt+Shift) сохранены
 #==============================================================================
 
 set -o pipefail
 
-readonly SCRIPT_VERSION="3.0"
+readonly SCRIPT_VERSION="3.2"
 readonly LOG_DIR="$HOME/.cache/cachyos-setup"
 readonly LOG_FILE="$LOG_DIR/setup-$(date +%Y%m%d-%H%M%S).log"
 readonly BACKUP_DIR="$LOG_DIR/backups/$(date +%Y%m%d-%H%M%S)"
@@ -26,7 +20,6 @@ ERRORS=0
 WARNINGS=0
 SKIPPED=0
 
-# Цвета только для терминала
 if [[ -t 1 ]]; then
     readonly RED=$'\033[0;31m'
     readonly GREEN=$'\033[0;32m'
@@ -39,18 +32,13 @@ else
     readonly RED='' GREEN='' YELLOW='' CYAN='' BLUE='' BOLD='' NC=''
 fi
 
-#==============================================================================
-# Инициализация логирования (без ANSI в файле)
-#==============================================================================
 mkdir -p "$LOG_DIR" "$BACKUP_DIR"
 touch "$STATE_FILE"
 
-# Пишем в stdout как обычно, а в файл без цветов
 strip_ansi() {
     sed -u 's/\x1b\[[0-9;]*m//g'
 }
 
-# Дублируем stdout/stderr в файл, вырезая ANSI из файла
 exec > >(tee >(strip_ansi >> "$LOG_FILE"))
 exec 2> >(tee >(strip_ansi >> "$LOG_FILE") >&2)
 
@@ -67,9 +55,6 @@ log_header()  {
     echo ""
 }
 
-#==============================================================================
-# Обработка сигналов
-#==============================================================================
 SUDO_KEEPER_PID=""
 cleanup_on_exit() {
     local exit_code=$?
@@ -108,7 +93,6 @@ is_done() {
     grep -qxF "$1" "$STATE_FILE" 2>/dev/null
 }
 
-# Единый механизм пропуска для всех шагов
 should_run() {
     local step="$1"
     if is_done "$step"; then
@@ -156,8 +140,37 @@ safe_write() {
     fi
 
     mkdir -p "$(dirname "$target")"
-    # printf с явным \n в конце
     if printf '%s\n' "$content" > "$target"; then
+        log_success "Записан: $target"
+        return 0
+    else
+        log_error "Не удалось записать: $target"
+        return 1
+    fi
+}
+
+safe_write_root() {
+    local target="$1"
+    local content="$2"
+
+    if [[ -f "$target" ]]; then
+        local current
+        current=$(sudo cat "$target" 2>/dev/null)
+        if [[ "$current" == "$content" ]]; then
+            log_skip "Конфиг $target уже актуален"
+            return 0
+        fi
+        local answer=""
+        safe_read "Файл $target существует. Перезаписать? [y/N]: " "N" answer
+        if [[ ! "$answer" =~ ^[YyДд]$ ]]; then
+            log_skip "Не перезаписан: $target"
+            return 1
+        fi
+        sudo cp -a "$target" "$target.bak.$(date +%s)" 2>/dev/null
+    fi
+
+    sudo mkdir -p "$(dirname "$target")"
+    if printf '%s\n' "$content" | sudo tee "$target" > /dev/null; then
         log_success "Записан: $target"
         return 0
     else
@@ -174,7 +187,6 @@ pkg_installed() {
     pacman -Qi "$1" &>/dev/null
 }
 
-# Установка пакетов — возвращает 0 только если ВСЕ нужные установлены
 install_pacman_pkgs() {
     local -a pkgs=("$@")
     local -a to_install=()
@@ -233,7 +245,6 @@ install_aur_pkg() {
     fi
 }
 
-# Умная установка: сначала pacman (включая CachyOS репо), потом AUR
 install_smart() {
     local pkg="$1"
     if pkg_installed "$pkg"; then
@@ -267,7 +278,6 @@ detect_gpu() {
     echo "${gpus% }"
 }
 
-# Проверка что репозиторий CachyOS подключён
 has_cachyos_repo() {
     grep -q "^\[cachyos" /etc/pacman.conf 2>/dev/null
 }
@@ -293,7 +303,6 @@ preflight_checks() {
         exit 1
     fi
 
-    # Sudo keeper
     ( while true; do sudo -n true; sleep 60; kill -0 "$$" 2>/dev/null || exit; done ) &
     SUDO_KEEPER_PID=$!
 
@@ -311,7 +320,7 @@ preflight_checks() {
     if has_cachyos_repo; then
         log_success "Репозиторий CachyOS обнаружен"
     else
-        log_warn "Репозиторий CachyOS НЕ обнаружен — многие пакеты будут ставиться из AUR"
+        log_warn "Репозиторий CachyOS НЕ обнаружен — часть пакетов пойдёт из AUR"
     fi
 
     log_success "Проверки пройдены"
@@ -360,7 +369,7 @@ install_yay() {
 }
 
 #==============================================================================
-# Обновление системы
+# Обновление
 #==============================================================================
 update_system() {
     log_header "Обновление системы"
@@ -379,13 +388,12 @@ update_system() {
 }
 
 #==============================================================================
-# Multilib — правильное раскомментирование
+# Multilib
 #==============================================================================
 enable_multilib() {
     log_header "Включение multilib"
     should_run "enable_multilib" || return 0
 
-    # Проверяем активность multilib
     if pacman -Sl multilib &>/dev/null; then
         log_skip "multilib уже активен"
         mark_done "enable_multilib"
@@ -394,8 +402,6 @@ enable_multilib() {
 
     backup_file /etc/pacman.conf
 
-    # Раскомментируем существующий блок [multilib] и Include
-    # Используем python-подобный подход через awk для надёжности
     if sudo awk '
         /^#\[multilib\]/ {
             print substr($0, 2)
@@ -410,12 +416,10 @@ enable_multilib() {
         { print }
     ' /etc/pacman.conf | sudo tee /etc/pacman.conf.new > /dev/null; then
 
-        # Проверяем что раскомментирование сработало
         if grep -q "^\[multilib\]" /etc/pacman.conf.new; then
             sudo mv /etc/pacman.conf.new /etc/pacman.conf
             log_success "multilib раскомментирован"
         else
-            # Fallback: если закомментированного блока не было — дописываем
             sudo rm -f /etc/pacman.conf.new
             log_info "Закомментированный [multilib] не найден, дописываю"
             echo -e "\n[multilib]\nInclude = /etc/pacman.d/mirrorlist" | \
@@ -459,10 +463,9 @@ install_gpu_drivers() {
                        intel-media-driver)
                 ;;
             nvidia)
-                log_warn "NVIDIA обнаружена — драйвер ставится вручную!"
-                log_warn "  Открытый:        sudo pacman -S nvidia-open-dkms"
-                log_warn "  Проприетарный:   sudo pacman -S nvidia-dkms"
-                log_warn "  Для Wayland рекомендую 555+ (проприетарный)"
+                log_warn "NVIDIA — драйвер ставится вручную!"
+                log_warn "  Открытый:      sudo pacman -S nvidia-open-dkms"
+                log_warn "  Проприетарный: sudo pacman -S nvidia-dkms"
                 ;;
         esac
     done
@@ -490,6 +493,7 @@ install_sway() {
         pipewire pipewire-pulse pipewire-alsa wireplumber
         pavucontrol
         qt5-wayland qt6-wayland
+        libinput
     )
 
     install_pacman_pkgs "${packages[@]}"
@@ -536,7 +540,7 @@ install_file_manager() {
 }
 
 #==============================================================================
-# Steam и игры (proton-cachyos из pacman если есть)
+# Игры
 #==============================================================================
 install_gaming() {
     log_header "Steam и игровые пакеты"
@@ -550,17 +554,15 @@ install_gaming() {
         return 0
     fi
 
-    install_pacman_pkgs steam gamemode lib32-gamemode mangohud lib32-mangohud \
-                       gamescope
+    install_pacman_pkgs steam gamemode lib32-gamemode mangohud lib32-mangohud gamescope
 
-    # proton-cachyos приоритетно из pacman
     install_smart proton-cachyos
 
     mark_done "install_gaming"
 }
 
 #==============================================================================
-# Zen Browser — приоритет pacman
+# Zen
 #==============================================================================
 install_zen_browser() {
     log_header "Zen Browser"
@@ -574,7 +576,6 @@ install_zen_browser() {
         return 0
     fi
 
-    # Пробуем разные имена в pacman (в CachyOS репо часто есть zen-browser-bin)
     local -a pacman_names=(zen-browser-bin zen-browser)
     for name in "${pacman_names[@]}"; do
         if pkg_in_repo "$name"; then
@@ -583,7 +584,6 @@ install_zen_browser() {
         fi
     done
 
-    # Fallback на AUR
     log_info "В репозиториях не найден, пробую AUR"
     install_aur_pkg zen-browser-bin || install_aur_pkg zen-browser || \
         log_warn "Zen Browser не установлен"
@@ -621,7 +621,6 @@ setup_themes() {
         *) gtk_theme="adw-gtk3-dark" ;;
     esac
 
-    # Курсоры: пробуем несколько вариантов имени
     if ! pkg_installed breeze; then
         install_pacman_pkgs breeze 2>/dev/null || log_warn "Курсоры Breeze не установлены"
     fi
@@ -658,13 +657,12 @@ Inherits=Breeze_Snow"
 }
 
 #==============================================================================
-# Шрифты и утилиты
+# Экстра
 #==============================================================================
 install_extras() {
     log_header "Шрифты и утилиты"
     should_run "install_extras" || return 0
 
-    # noto-fonts-cjk актуальное имя, если нет — попробуем vf версию
     local -a fonts=(
         ttf-jetbrains-mono-nerd ttf-font-awesome
         noto-fonts noto-fonts-emoji
@@ -709,13 +707,59 @@ create_directories() {
 }
 
 #==============================================================================
-# Sway config
+# Мышь без ускорения
+#==============================================================================
+configure_mouse() {
+    log_header "Настройка мыши (отключение ускорения)"
+    should_run "configure_mouse" || return 0
+
+    log_info "Отключаю акселерацию мыши (flat profile)"
+    log_info "Настройки применятся для Wayland (Sway) и X11 (Xwayland/игры)"
+
+    local libinput_conf='# Отключение ускорения мыши на системном уровне (X11/Xwayland)
+# Управляется CachyOS Setup Script
+
+Section "InputClass"
+    Identifier "Mouse - disable acceleration"
+    MatchIsPointer "yes"
+    Driver "libinput"
+
+    # Flat profile = 1:1 движение без ускорения
+    Option "AccelProfile" "flat"
+
+    # Скорость на нейтральном уровне
+    Option "AccelSpeed" "0"
+
+    # Отключить эмуляцию средней кнопки
+    Option "MiddleEmulation" "off"
+
+    # Оставляем прокрутку колесом
+    Option "ScrollMethod" "button"
+EndSection
+
+Section "InputClass"
+    Identifier "Touchpad - keep acceleration"
+    MatchIsTouchpad "yes"
+    Driver "libinput"
+
+    Option "Tapping" "on"
+    Option "NaturalScrolling" "true"
+    Option "DisableWhileTyping" "true"
+    Option "MiddleEmulation" "on"
+EndSection'
+
+    safe_write_root /etc/X11/xorg.conf.d/30-mouse-noaccel.conf "$libinput_conf"
+
+    mark_done "configure_mouse"
+}
+
+#==============================================================================
+# Sway config (БЕЗ CapsLock→Escape)
 #==============================================================================
 configure_sway() {
     log_header "Конфигурация Sway"
     should_run "configure_sway" || return 0
 
-    # Используем одинарные кавычки: $(date), $(slurp) НЕ раскрываются при записи
     local sway_config='# ╔══════════════════════════════════════════════════════════════╗
 # ║                    SWAY CONFIG                               ║
 # ╚══════════════════════════════════════════════════════════════╝
@@ -759,18 +803,36 @@ client.unfocused        #292e42 #1a1b26 #565f89 #292e42   #292e42
 client.urgent           #f7768e #1a1b26 #c0caf5 #f7768e   #f7768e
 
 # ── Ввод ─────────────────────────────────────────────────────
+# CapsLock работает как обычная клавиша (без переназначения)
 input type:keyboard {
     xkb_layout us,ru
-    xkb_options grp:alt_shift_toggle,caps:escape
+    xkb_options grp:alt_shift_toggle
     repeat_delay 300
     repeat_rate 50
 }
 
+# Мышь без ускорения (1:1)
+input type:pointer {
+    accel_profile flat
+    pointer_accel 0
+    middle_emulation disabled
+    dwt disabled
+}
+
+input type:mouse {
+    accel_profile flat
+    pointer_accel 0
+    middle_emulation disabled
+}
+
+# Тачпад — ускорение оставлено
 input type:touchpad {
     tap enabled
     natural_scroll enabled
     dwt enabled
     middle_emulation enabled
+    accel_profile adaptive
+    pointer_accel 0
 }
 
 seat seat0 xcursor_theme Breeze_Snow 24
@@ -784,7 +846,6 @@ bindsym $mod+Shift+e exec swaynag -t warning -m "Выйти из Sway?" -B "Да
 
 bindsym $mod+Escape exec swaylock -f -c 1a1b26
 
-# Скриншоты (используем оболочку для date/slurp во время нажатия)
 bindsym Print exec sh -c "grim ~/Pictures/Screenshots/screenshot-$(date +%Y%m%d-%H%M%S).png"
 bindsym $mod+Print exec sh -c "grim -g \"$(slurp)\" ~/Pictures/Screenshots/screenshot-$(date +%Y%m%d-%H%M%S).png"
 bindsym $mod+Shift+Print exec sh -c "grim -g \"$(slurp)\" - | wl-copy"
@@ -883,7 +944,6 @@ assign [class="Steam"] workspace number 9
 
 xwayland enable'
 
-    # Проверка синтаксиса перед записью (если sway уже установлен)
     if command -v sway &>/dev/null; then
         local tmp_config
         tmp_config=$(mktemp)
@@ -951,7 +1011,6 @@ xwayland enable'
     "tray": { "spacing": 8 }
 }'
     safe_write ~/.config/waybar/config.jsonc "$waybar_config"
-    # Waybar в разных версиях ищет разные имена — делаем симлинк
     ln -sf config.jsonc ~/.config/waybar/config 2>/dev/null
 
     local waybar_style='* {
@@ -1087,13 +1146,12 @@ default-timeout=3000'
 }
 
 #==============================================================================
-# Переменные окружения — экспортируются В .bash_profile перед exec sway
+# Env
 #==============================================================================
 setup_environment() {
     log_header "Переменные окружения и автозапуск"
     should_run "setup_environment" || return 0
 
-    # environment.d — на случай запуска через display manager с systemd
     local env_config='XDG_CURRENT_DESKTOP=sway
 XDG_SESSION_TYPE=wayland
 XDG_SESSION_DESKTOP=sway
@@ -1109,7 +1167,6 @@ XCURSOR_SIZE=24
 _JAVA_AWT_WM_NONREPARENTING=1'
     safe_write ~/.config/environment.d/sway.conf "$env_config"
 
-    # ГЛАВНОЕ: переменные экспортируются ПЕРЕД exec sway в .bash_profile
     local autostart_marker="# SWAY_AUTOSTART_MANAGED_BY_SETUP"
     if [[ -f ~/.bash_profile ]] && grep -qF "$autostart_marker" ~/.bash_profile; then
         log_skip "Автозапуск Sway уже настроен"
@@ -1119,7 +1176,6 @@ _JAVA_AWT_WM_NONREPARENTING=1'
 
 # SWAY_AUTOSTART_MANAGED_BY_SETUP
 if [ -z "$WAYLAND_DISPLAY" ] && [ -z "$DISPLAY" ] && [ "${XDG_VTNR:-0}" -eq 1 ]; then
-    # Экспортируем переменные окружения (environment.d не работает без systemd-user session)
     export XDG_CURRENT_DESKTOP=sway
     export XDG_SESSION_TYPE=wayland
     export XDG_SESSION_DESKTOP=sway
@@ -1169,6 +1225,14 @@ print_summary() {
     echo "  2. На TTY1 Sway запустится автоматически"
     echo "  3. Или вручную: sway"
     echo ""
+    echo "${BOLD}Мышь:${NC}"
+    echo "  • Ускорение отключено (flat profile) — Sway + X11/Xwayland"
+    echo "  • Проверка: swaymsg -t get_inputs | grep accel"
+    echo ""
+    echo "${BOLD}Клавиатура:${NC}"
+    echo "  • CapsLock работает как обычно"
+    echo "  • Alt+Shift — переключение RU/EN"
+    echo ""
     echo "${BOLD}Ключевые клавиши:${NC}"
     echo "  Super+Enter       — терминал"
     echo "  Super+D           — лаунчер"
@@ -1178,7 +1242,6 @@ print_summary() {
     echo "  Super+H/J/K/L     — навигация"
     echo "  Super+1..0        — рабочие столы"
     echo "  Alt+Shift         — RU/EN"
-    echo "  CapsLock          — Escape"
 }
 
 #==============================================================================
@@ -1189,8 +1252,9 @@ main() {
     echo "${BOLD}${CYAN}"
     cat << BANNER
    ╔═══════════════════════════════════════════════╗
-   ║      CachyOS Sway Setup Script v${SCRIPT_VERSION}             ║
+   ║      CachyOS Sway Setup Script v${SCRIPT_VERSION}           ║
    ║   Надёжность • Производительность • Стиль     ║
+   ║    Мышь без ускорения • CapsLock обычный      ║
    ╚═══════════════════════════════════════════════╝
 BANNER
     echo "${NC}"
@@ -1199,6 +1263,8 @@ BANNER
     echo "${BOLD}Бэкапы:${NC}  $BACKUP_DIR"
     echo ""
     echo "${BOLD}Приоритет установки:${NC} pacman → CachyOS repo → AUR"
+    echo "${BOLD}Мышь:${NC} flat acceleration profile (1:1 без ускорения)"
+    echo "${BOLD}CapsLock:${NC} работает как обычно (не превращается в Escape)"
     echo ""
     echo "${YELLOW}Скрипт можно перезапускать — выполненные шаги пропускаются.${NC}"
     echo ""
@@ -1212,7 +1278,6 @@ BANNER
 
     preflight_checks
 
-    # Каждый шаг изолирован
     install_yay              || true
     update_system            || true
     enable_multilib          || true
@@ -1224,6 +1289,7 @@ BANNER
     setup_themes             || true
     install_extras           || true
     create_directories       || true
+    configure_mouse          || true
     configure_sway           || true
     setup_environment        || true
 
