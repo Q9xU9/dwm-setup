@@ -1,6 +1,6 @@
 #!/bin/bash
 # install.sh — DWM окружение на CachyOS/Arch
-# Версия 11.7 — Исправлен trayer, удален neofetch, добавлен обход таймаута зеркал
+# Версия 11.8 — Нативный трей в баре DWM (без trayer), буфер, уведомления
 
 set -e
 
@@ -22,8 +22,7 @@ info()  { echo -e "${CYAN}[i]${NC} $1"; }
 # ===================== ЗАВИСИМОСТИ =====================
 install_packages() {
     log "Обновление системы..."
-    # Игнорируем ошибку обновления баз, если зеркала временно лежат
-    sudo pacman -Syu --noconfirm || warn "Не удалось обновить базы данных пакетов, продолжаем со старыми базами..."
+    sudo pacman -Syu --noconfirm || warn "Не удалось обновить базы данных пакетов, продолжаем со старыми..."
 
     log "Установка базовых пакетов..."
     sudo pacman -S --needed --noconfirm \
@@ -77,14 +76,6 @@ install_yay() {
 install_aur_packages() {
     log "Установка AUR пакетов..."
 
-    info "Установка trayer (с обходом проблем с зеркалами)..."
-    if sudo pacman -S --needed --noconfirm trayer 2>/dev/null; then
-        log "trayer установлен из официальных репозиториев!"
-    else
-        warn "Официальный репозиторий недоступен. Устанавливаем trayer-srg из AUR..."
-        yay -S --needed --noconfirm trayer-srg || warn "Не удалось установить trayer!"
-    fi
-
     info "i3lock-color..."
     if yay -S --needed --noconfirm i3lock-color 2>/dev/null; then
         log "i3lock-color установлен!"
@@ -119,19 +110,26 @@ download_tool() {
     local gitee_url=$2
     local codeberg_url=$3
     local archive_url=$4
+    local version=$5
 
     log "Загрузка $name..."
     mkdir -p ~/suckless
     cd ~/suckless
     rm -rf "$name" "${name}.tar.gz"
 
-    if git clone --depth 1 "$gitee_url" "$name" 2>/dev/null; then
-        log "$name загружен с Gitee!"
+    local branch_opt=""
+    if [ -n "$version" ]; then
+        branch_opt="--branch $version"
+    fi
+
+    # Пытаемся стянуть конкретный тег/ветку из репозиториев для стабильности патчей
+    if git clone --depth 1 $branch_opt "$gitee_url" "$name" 2>/dev/null; then
+        log "$name ($version) загружен с Gitee!"
         return 0
     fi
 
-    if git clone --depth 1 "$codeberg_url" "$name" 2>/dev/null; then
-        log "$name загружен с Codeberg!"
+    if git clone --depth 1 $branch_opt "$codeberg_url" "$name" 2>/dev/null; then
+        log "$name ($version) загружен с Codeberg!"
         return 0
     fi
 
@@ -149,44 +147,47 @@ download_tool() {
     err "Не удалось загрузить $name!"
 }
 
-# ===================== СБОРКА DWM =====================
+# ===================== СБОРКА DWM (С ВШИТЫМ ТРЕЕМ) =====================
 build_dwm() {
+    # Загружаем строго версию 6.5, чтобы патч systray наложился без единой ошибки
     download_tool "dwm" \
         "https://gitee.com/mirrors/dwm.git" \
         "https://codeberg.org/gergelylaba/dwm.git" \
-        "https://web.archive.org/web/20240401000000/https://dl.suckless.org/dwm/dwm-6.5.tar.gz"
+        "https://dl.suckless.org/dwm/dwm-6.5.tar.gz" \
+        "6.5"
 
     cd ~/suckless/dwm
 
-    log "Применение патча systray..."
-    local SYSTRAY_APPLIED=0
-
+    log "Применение патча systray (встраивание трея в бар)..."
+    
     if wget --timeout=10 -qO dwm-systray.diff \
         "https://dwm.suckless.org/patches/systray/dwm-systray-6.5.diff" 2>/dev/null || \
        curl -sLo dwm-systray.diff \
         "https://dwm.suckless.org/patches/systray/dwm-systray-6.5.diff" 2>/dev/null; then
 
-        if patch -p1 --forward < dwm-systray.diff 2>/dev/null; then
-            SYSTRAY_APPLIED=1
-            log "Патч systray применён!"
+        if patch -p1 --forward < dwm-systray.diff; then
+            log "Патч нативного трея успешно интегрирован!"
         else
-            warn "Патч systray не применился — используем trayer как fallback"
-            git checkout -- . 2>/dev/null || true
+            err "Критическая ошибка: патч нативного трея не применился!"
         fi
+    else
+        err "Критическая ошибка: не удалось скачать патч systray!"
     fi
 
-    echo "$SYSTRAY_APPLIED" > ~/.dwm-systray-status
-
+    # Пишем конфиг с переменными нативного трея
     cat > config.h << 'DWMCONFIG'
-/* DWM config.h — v11.7 */
+/* DWM config.h — v11.8 (Warm Monochrome) */
 
 static const unsigned int borderpx       = 2;
 static const unsigned int snap           = 16;
-static const unsigned int systraypinning = 0;
-static const unsigned int systrayonleft  = 0;
-static const unsigned int systrayspacing = 4;
-static const int systraypinningfailfirst = 1;
-static const int showsystray             = 1;
+
+/* Настройки встроенного трея */
+static const unsigned int systraypinning = 0;   /* 0: трей следует за активным монитором */
+static const unsigned int systrayonleft  = 0;   /* 0: трей справа от текста статуса, 1: слева */
+static const unsigned int systrayspacing = 6;   /* Расстояние между иконками трея (в пикселях) */
+static const int systraypinningfailfirst = 1;   /* 1: показывать трей на первом мониторе, если пиннинг не удался */
+static const int showsystray             = 1;   /* 1: показывать встроенный трей в баре */
+
 static const int showbar                 = 1;
 static const int topbar                  = 1;
 
@@ -216,7 +217,6 @@ static const Rule rules[] = {
     { "telegram-desktop", NULL, NULL, 1 << 2, 0, -1 },
     { "Gimp",             NULL, NULL, 0,      1, -1 },
     { "pavucontrol",      NULL, NULL, 0,      1, -1 },
-    { "trayer",           NULL, NULL, 0,      1, -1 },
 };
 
 static const float mfact     = 0.55;
@@ -340,17 +340,8 @@ static const Button buttons[] = {
 };
 DWMCONFIG
 
-    if [ "$SYSTRAY_APPLIED" -eq 0 ]; then
-        warn "Убираю systray-переменные из config.h для чистой компиляции..."
-        sed -i '/systraypinning/d' config.h
-        sed -i '/systrayonleft/d' config.h
-        sed -i '/systrayspacing/d' config.h
-        sed -i '/systraypinningfailfirst/d' config.h
-        sed -i '/showsystray/d' config.h
-    fi
-
     sudo make clean install
-    log "DWM установлен!"
+    log "DWM установлен с интегрированным треем!"
     cd ~/suckless
 }
 
@@ -996,37 +987,7 @@ BASHRC_LS
     fi
 }
 
-# ===================== ТРЕЙ КОНФИГ (trayer) =====================
-create_trayer_config() {
-    log "Настройка trayer..."
-    mkdir -p ~/bin
-
-    cat > ~/bin/start-trayer << 'STARTTRAYER'
-#!/bin/bash
-pkill -x trayer 2>/dev/null
-sleep 0.5
-
-trayer \
-    --edge top \
-    --align right \
-    --SetDockType true \
-    --SetPartialStrut false \
-    --expand true \
-    --widthtype request \
-    --transparent true \
-    --alpha 0 \
-    --tint 0x0c0b0a \
-    --height 22 \
-    --iconspacing 4 \
-    --padding 4 \
-    --monitor 0 &
-STARTTRAYER
-
-    chmod +x ~/bin/start-trayer
-    log "Trayer настроен."
-}
-
-# ===================== DWM-SESSION =====================
+# ===================== DWM-SESSION (БЕЗ EXTERNAL TRAYER) =====================
 create_dwm_session() {
     log "Создание dwm-session..."
 
@@ -1081,23 +1042,13 @@ if [ -x "$HOME/suckless/dwm-statusbar.sh" ]; then
     "$HOME/suckless/dwm-statusbar.sh" >> "$LOG" 2>&1 &
 fi
 
-SYSTRAY_STATUS="0"
-[ -f "$HOME/.dwm-systray-status" ] && SYSTRAY_STATUS=$(cat "$HOME/.dwm-systray-status")
-
-if [ "$SYSTRAY_STATUS" != "1" ]; then
-    echo "Starting trayer fallback..." >> "$LOG"
-    (
-        sleep 1.5
-        "$HOME/bin/start-trayer" >> "$LOG" 2>&1
-    ) &
-else
-    echo "Using DWM built-in systray" >> "$LOG"
-fi
-
+# ─── ТРЕЙ-ИКОНКИ ───
+# Теперь они автоматически встают прямо во встроенный трей в баре
 (
-    sleep 3
+    sleep 2
     nm-applet 2>>"$LOG" &
     blueman-applet 2>>"$LOG" &
+    echo "Applets docked into built-in systray" >> "$LOG"
 ) &
 
 if command -v xidlehook &>/dev/null; then
@@ -1153,8 +1104,8 @@ shadow-opacity = 0.6;
 shadow-color = "#0c0b0a";
 
 shadow-exclude = [
-    "class_g = 'trayer'",
-    "name = 'trayer'"
+    "class_g = 'dwm'",
+    "class_g = 'Dwm'"
 ];
 
 inactive-opacity = 0.95;
@@ -1238,7 +1189,7 @@ DUNST
 create_cheatsheet() {
     cat > ~/dwm-keybinds.txt << 'CHEAT'
 ╔══════════════════════════════════════════════════════════════╗
-║                    DWM KEYBINDINGS v11.7                     ║
+║                    DWM KEYBINDINGS v11.8                     ║
 ╠══════════════════════════════════════════════════════════════╣
 ║  ЗАПУСК ПРОГРАММ                                             ║
 ║  Super + Enter        — Терминал                             ║
@@ -1295,25 +1246,15 @@ run_diagnostics() {
     [ -x ~/suckless/dwm-statusbar.sh ] && log "✓ Статус-бар" || warn "✗ Статус-бар"
     [ -x ~/bin/clipmenu-picker ] && log "✓ Clipmenu-picker" || warn "✗ Clipmenu"
     [ -x ~/bin/notification-center ] && log "✓ Центр уведомлений" || warn "✗ Центр уведомлений"
-    [ -x ~/bin/start-trayer ] && log "✓ Trayer скрипт" || warn "✗ Trayer скрипт"
-
-    # Проверка trayer и trayer-srg
-    if command -v trayer &>/dev/null; then
-        log "✓ trayer установлен"
-    else
-        err "✗ trayer НЕ установлен"
-    fi
 
     command -v clipmenu &>/dev/null && log "✓ clipmenu установлен" || err "✗ clipmenu НЕ установлен"
     command -v clipmenud &>/dev/null && log "✓ clipmenud (демон) готов" || warn "✗ clipmenud не найден"
     command -v dunstctl &>/dev/null && log "✓ dunstctl (управление уведомлениями)" || warn "✗ dunstctl не найден"
 
-    if [ -f ~/.dwm-systray-status ]; then
-        if [ "$(cat ~/.dwm-systray-status)" = "1" ]; then
-            log "✓ DWM systray патч ПРИМЕНЁН — трей встроен в DWM"
-        else
-            warn "! DWM systray патч НЕ применился → используется trayer (всё будет работать отлично)"
-        fi
+    if [ -f ~/.dwm-systray-status ] && [ "$(cat ~/.dwm-systray-status)" = "1" ]; then
+        log "✓ Нативный трей вшит в панель DWM — внешние программы больше не требуются!"
+    else
+        err "✗ Нативный трей DWM не собран!"
     fi
 
     echo -e "${CYAN}═══════════════════════════════════${NC}"
@@ -1324,8 +1265,8 @@ run_diagnostics() {
 main() {
     echo ""
     echo -e "${CYAN}╔══════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║   DWM Warm Monochrome v11.7                 ║${NC}"
-    echo -e "${CYAN}║   Исправлены: Трей + Буфер + Уведомления    ║${NC}"
+    echo -e "${CYAN}║   DWM Warm Monochrome v11.8                 ║${NC}"
+    echo -e "${CYAN}║   Нативный встроенный трей в баре DWM       ║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
 
@@ -1350,7 +1291,6 @@ main() {
     create_dunst_config
     create_clipmenu_config
     create_notification_center
-    create_trayer_config
     create_dwm_session
     create_session
     create_cheatsheet
@@ -1362,12 +1302,14 @@ main() {
     echo -e "${GREEN}║          УСТАНОВКА ЗАВЕРШЕНА!                ║${NC}"
     echo -e "${GREEN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
-    info "Исправлено:"
-    echo "  ✓ Neofetch полностью убран из списка установки."
-    echo "  ✓ Trayer теперь имеет запасной вариант установки из AUR (trayer-srg) при проблемах с зеркалами."
-    echo "  ✓ Буфер обмена (Super+V) и уведомления (Super+ё) теперь работают стабильно."
+    info "Что изменилось в v11.8:"
+    echo "  ✓ Трей теперь НАСТОЯЩИЙ (встроен прямо в верхнюю панель DWM)."
+    echo "  ✓ Никаких внешних окон trayer и дыр на экране."
+    echo "  ✓ При замене иконок или их скрытии панель автоматически перерисовывается."
+    echo "  ✓ Кнопки сети и Bluetooth нативно сворачиваются в правый угол."
+    echo "  ✓ Neofetch удален за ненадобностью."
     echo ""
-    warn "Для вступления изменений в силу перезагрузитесь: reboot"
+    warn "Для активации нативного трея перезагрузите компьютер: reboot"
     echo ""
 }
 
