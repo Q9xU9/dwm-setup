@@ -1,6 +1,6 @@
 #!/bin/bash
 # install.sh — DWM окружение на CachyOS/Arch
-# Версия 12.0 — Полный фикс трея, Gaps, 4K обои, монолитный бар и 3px обводка
+# Версия 12.1 — Нативный трей, Gaps, 4px обводка, однородный бар, фикс CPU
 
 set -e
 
@@ -43,7 +43,6 @@ install_packages() {
         blueman \
         libnotify \
         openssh bc \
-        imagemagick \
         xsettingsd \
         gnome-themes-extra adwaita-icon-theme \
         gsettings-desktop-schemas dconf \
@@ -104,64 +103,28 @@ install_aur_packages() {
         warn "xidlehook не установлен."
 }
 
-# ===================== ЗАГРУЗЧИК SUCKLESS =====================
-download_tool() {
-    local name=$1
-    local gitee_url=$2
-    local codeberg_url=$3
-    local archive_url=$4
-    local version=$5
-
-    log "Загрузка $name..."
+# ===================== СБОРКА DWM (ТРЕЙ + GAPS) =====================
+build_dwm() {
+    log "Загрузка официального чистого архива DWM 6.5..."
     mkdir -p ~/suckless
     cd ~/suckless
-    rm -rf "$name" "${name}.tar.gz"
+    rm -rf dwm dwm-6.5 dwm-6.5.tar.gz
 
-    local branch_opt=""
-    if [ -n "$version" ]; then
-        branch_opt="--branch $version"
-    fi
+    # Используем стабильный архив, а не ветку git, чтобы избежать нестыковок
+    wget --timeout=15 -q "https://dl.suckless.org/dwm/dwm-6.5.tar.gz" || \
+    curl -sLo dwm-6.5.tar.gz "https://dl.suckless.org/dwm/dwm-6.5.tar.gz"
 
-    if git clone --depth 1 $branch_opt "$gitee_url" "$name" 2>/dev/null; then
-        log "$name ($version) загружен с Gitee!"
-        return 0
-    fi
+    tar -xzf dwm-6.5.tar.gz
+    mv dwm-6.5 dwm
+    rm dwm-6.5.tar.gz
+    cd dwm
 
-    if git clone --depth 1 $branch_opt "$codeberg_url" "$name" 2>/dev/null; then
-        log "$name ($version) загружен с Codeberg!"
-        return 0
-    fi
-
-    if wget --timeout=10 -qO "${name}.tar.gz" "$archive_url" || \
-       curl -L --connect-timeout 10 -o "${name}.tar.gz" "$archive_url"; then
-        tar -xzf "${name}.tar.gz"
-        local extracted_dir
-        extracted_dir=$(tar -tf "${name}.tar.gz" | head -1 | cut -f1 -d"/")
-        mv "$extracted_dir" "$name"
-        rm "${name}.tar.gz"
-        log "$name загружен из архива!"
-        return 0
-    fi
-
-    err "Не удалось загрузить $name!"
-}
-
-# ===================== СБОРКА DWM (С ВШИТЫМ ТРЕЕМ И GAPS) =====================
-build_dwm() {
-    download_tool "dwm" \
-        "https://gitee.com/mirrors/dwm.git" \
-        "https://codeberg.org/gergelylaba/dwm.git" \
-        "https://dl.suckless.org/dwm/dwm-6.5.tar.gz" \
-        "6.5"
-
-    cd ~/suckless/dwm
-
-    # 1. СТАБИЛЬНЫЙ ПАТЧ СИСТРЕЯ (БЕЗ ОПЕЧАТОК, РАБОТАЕТ НА 100% ОФФЛАЙН)
+    # 1. СТАБИЛЬНЫЙ ОФЛАЙН-ПАТЧ СИСТРЕЯ (БЕЗ ОШИБОК И СДВИГОВ)
     log "Интеграция нативного трея (systray)..."
-    cat << 'EOF' > dwm-systray-offline.patch
-diff -up a/config.def.h b/config.def.h
---- a/config.def.h	2024-03-19 12:00:00.000000000 +0300
-+++ b/config.def.h	2024-03-19 12:05:00.000000000 +0300
+    cat << 'EOF' > dwm-systray.patch
+diff -ur a/config.def.h b/config.def.h
+--- a/config.def.h
++++ b/config.def.h
 @@ -3,6 +3,11 @@
  /* appearance */
  static const unsigned int borderpx  = 1;        /* border pixel of windows */
@@ -169,14 +132,14 @@ diff -up a/config.def.h b/config.def.h
 +static const unsigned int systraypinning = 0;   /* 0: sloppy systray pinning, >0: pin systray to monitor X */
 +static const unsigned int systrayonleft  = 0;   /* 0: systray in the right corner, >0: systray on left of status text */
 +static const unsigned int systrayspacing = 2;   /* systray spacing */
-+static const int systraypinningfailfirst = 1;   /* 1: if pinning fails, display systray on the first monitor, False: display systray on the last monitor*/
++static const int systraypinningfailfirst = 1;   /* 1: if pinning fails, display systray on the first monitor */
 +static const int showsystray        = 1;        /* 0 means no systray */
  static const int showbar            = 1;        /* 0 means no bar */
  static const int topbar             = 1;        /* 0 means bottom bar */
  static const char *fonts[]          = { "monospace:size=10" };
-diff -up a/dwm.c b/dwm.c
---- a/dwm.c	2024-03-19 12:00:00.000000000 +0300
-+++ b/dwm.c	2024-03-19 12:10:00.000000000 +0300
+diff -ur a/dwm.c b/dwm.c
+--- a/dwm.c
++++ b/dwm.c
 @@ -57,12 +57,30 @@
  #define TAGMASK                 ((1 << LENGTH(tags)) - 1)
  #define TEXTW(X)                (drw_fontset_getwidth(drw, (X)) + lrpad)
@@ -280,7 +243,7 @@ diff -up a/dwm.c b/dwm.c
  static void zoom(const Arg *arg);
  
  /* variables */
- static Systray *systray = NULL;
++static Systray *systray = NULL;
  static const char broken[] = "broken";
  static char stext[256];
  static int screen;
@@ -352,7 +315,6 @@ diff -up a/dwm.c b/dwm.c
 +			c->next = systray->icons;
 +			systray->icons = c;
 +			if (!XGetWindowAttributes(dpy, c->win, &wa)) {
-+				/* use default parameters */
 +				wa.width = bh;
 +				wa.height = bh;
 +				wa.border_width = 0;
@@ -362,14 +324,12 @@ diff -up a/dwm.c b/dwm.c
 +			c->oldbw = wa.border_width;
 +			c->bw = 0;
 +			c->isfloating = True;
-+			/* Reuse usegrab field so it doesn't float in our way */
 +			c->isfixed = 1;
 +			updatesizehints(c);
 +			updatesystrayicongeom(c, c->w, c->h);
 +			XSetWindowBorderWidth(dpy, c->win, 0);
 +			XSelectInput(dpy, c->win, StructureNotifyMask | PropertyChangeMask | ResizeRedirectMask);
 +			XReparentWindow(dpy, c->win, systray->win, 0, 0);
-+			/* use parents background color */
 +			ca.background_pixel = scheme[SchemeNorm][ColBg].pixel;
 +			XChangeWindowAttributes(dpy, c->win, CWBackPixel, &ca);
 +			sendevent(c, xatom[Xembed]);
@@ -381,12 +341,12 @@ diff -up a/dwm.c b/dwm.c
  	if (!c)
  		return;
  	if (cme->message_type == netatom[NetWMState]) {
-@@ -568,7 +653,7_configurerequest(XEvent *e)
+@@ -568,7 +653,7 @@ configurerequest(XEvent *e)
  				c->my = ev->y;
  			if (ev->value_mask & CWWidth)
  				c->mw = ev->width;
 -			if (ev->value_mask & CWHeight)
-+			if (ev->value_mask & CWHeight) 
++			if (ev->value_mask & CWHeight)
  				c->mh = ev->height;
  			if ((c->mx + c->mw > c->mon->mx + c->mon->mw) && c->isfloating)
  				c->mx = c->mon->mx + (c->mon->mw / 2 - (c->mw / 2)); /* center in x direction */
@@ -415,13 +375,13 @@ diff -up a/dwm.c b/dwm.c
  		drw_setscheme(drw, scheme[SchemeNorm]);
 -		tw = TEXTW(stext) - lrpad + 2; /* 2px right padding */
 -		drw_text(drw, m->ww - tw, 0, tw, bh, 0, stext, 0);
-+		tw = TEXTW(stext) - lrpad + 2; 
++		tw = TEXTW(stext) - lrpad + 2;
 +		drw_text(drw, m->ww - tw - getsystraywidth(), 0, tw, bh, 0, stext, 0);
  	}
  
  	for (c = m->clients; c; c = c->next) {
 -		occ |= c->tags;
-+		occ |= c->tags; 
++		occ |= c->tags;
  		if (c->isurgent)
  			urg |= c->tags;
  	}
@@ -529,10 +489,9 @@ diff -up a/dwm.c b/dwm.c
 +	}
 +}
 +
-+void
+ void
  restack(Monitor *m)
  {
- 	Client *c;
 @@ -1711,11 +1882,30 @@ scan(void)
  	}
  }
@@ -566,7 +525,7 @@ diff -up a/dwm.c b/dwm.c
  		ev.xclient.data.l[0] = proto;
  		ev.xclient.data.l[1] = CurrentTime;
 -		XSendEvent(dpy, c->win, False, NoEventMask, &ev);
-+		XSendEvent(dpy, c->win, False, NoEventMask, &ev); 
++		XSendEvent(dpy, c->win, False, NoEventMask, &ev);
  	}
  	return exists;
  }
@@ -669,7 +628,7 @@ diff -up a/dwm.c b/dwm.c
  		if (m->barwin)
  			continue;
 -		m->barwin = XCreateWindow(dpy, root, m->wx, m->by, m->ww, bh, 0, DefaultDepth(dpy, screen),
-+		m->barwin = XCreateWindow(dpy, root, m->wx, m->by, m->ww, bh, 0, DefaultDepth(dpy, screen), 
++		m->barwin = XCreateWindow(dpy, root, m->wx, m->by, m->ww, bh, 0, DefaultDepth(dpy, screen),
  				CopyFromParent, DefaultVisual(dpy, screen),
  				CWOverrideRedirect|CWBackPixmap|CWEventMask, &wa);
  		XDefineCursor(dpy, m->barwin, cursor[CurNormal]->cursor);
@@ -840,9 +799,9 @@ EOF
     # 2. ВШИТЫЙ ПАТЧ НА ОТСТУПЫ (GAPS)
     log "Интеграция нативных отступов (gaps)..."
     cat << 'EOF' > dwm-gaps.patch
-diff -up a/config.def.h b/config.def.h
---- a/config.def.h	2024-03-19 12:00:00.000000000 +0300
-+++ b/config.def.h	2024-03-19 12:20:00.000000000 +0300
+diff -ur a/config.def.h b/config.def.h
+--- a/config.def.h
++++ b/config.def.h
 @@ -2,6 +2,7 @@
  
  /* appearance */
@@ -851,9 +810,9 @@ diff -up a/config.def.h b/config.def.h
  static const unsigned int snap      = 32;       /* snap pixel */
  static const unsigned int systraypinning = 0;   /* 0: sloppy systray pinning, >0: pin systray to monitor X */
  static const unsigned int systrayonleft  = 0;   /* 0: systray in the right corner, >0: systray on left of status text */
-diff -up a/dwm.c b/dwm.c
---- a/dwm.c	2024-03-19 12:10:00.000000000 +0300
-+++ b/dwm.c	2024-03-19 12:30:00.000000000 +0300
+diff -ur a/dwm.c b/dwm.c
+--- a/dwm.c
++++ b/dwm.c
 @@ -2117,17 +2117,17 @@ void
  tile(Monitor *m)
  {
@@ -869,7 +828,7 @@ diff -up a/dwm.c b/dwm.c
 +		mw = m->nmaster ? (m->ww - gappx) * m->mfact : 0;
  	else
  		mw = m->ww;
--	for (i = my = ty = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next), i++)
+-	for (i = my = ty = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next), i++) {
 +	for (i = my = ty = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next), i++) {
  		if (i < m->nmaster) {
 -			h = (m->wh - my) / (MIN(n, m->nmaster) - i);
@@ -886,27 +845,27 @@ diff -up a/dwm.c b/dwm.c
 +			resize(c, m->wx + mw + gappx, m->wy + ty + gappx, m->ww - mw - (2*c->bw) - 2*gappx, h - (2*c->bw), 0);
 +			ty += HEIGHT(c) + gappx;
  		}
-+	}
+ 	}
  }
 EOF
 
-    # ПРИМЕНЯЕМ ПАТЧИ С ФЛАГОМ "-l" (игнорирует разницу в табах/пробелах)
+    # Применяем патчи с флагом "-l" (игнорирует разницу в пробелах и табуляции)
     log "Наложение патча systray..."
-    patch -p1 -l --forward < dwm-systray-offline.patch || err "Не удалось применить патч нативного трея!"
+    patch -p1 -l --forward < dwm-systray.patch || err "Не удалось применить патч нативного трея!"
     
     log "Наложение патча gaps..."
     patch -p1 -l --forward < dwm-gaps.patch || err "Не удалось применить патч отступов!"
 
-    # Добавляем системные xcb библиотеки в Makefile для нормальной компиляции трея
+    # Добавляем системные библиотеки xcb в Makefile
     sed -i 's/LIBS = -L${X11LIB} -lX11 ${XINERAMALIBS} ${FREETYPELIBS}/LIBS = -L${X11LIB} -lX11 ${XINERAMALIBS} ${FREETYPELIBS} -lX11-xcb -lxcb -lxcb-res/g' config.mk
 
     # Пишем оптимизированный config.h
     cat > config.h << 'DWMCONFIG'
-/* DWM config.h — v12.0 (Warm Monochrome) */
+/* DWM config.h — v12.1 (Warm Monochrome) */
 
-static const unsigned int borderpx       = 3;   /* Четкая обводка 3px */
+static const unsigned int borderpx       = 4;   /* Четкая жирная обводка 4px */
 static const unsigned int snap           = 16;
-static const unsigned int gappx          = 11;  /* Красивые отступы у окон */
+static const unsigned int gappx          = 11;  /* Идеальные отступы у окон */
 
 /* Настройки встроенного трея */
 static const unsigned int systraypinning = 0;   
@@ -1069,18 +1028,24 @@ static const Button buttons[] = {
 DWMCONFIG
 
     sudo make clean install
-    log "DWM успешно собран и установлен (Встроенный трей + Gaps + Однородный бар)!"
+    log "DWM успешно собран и установлен (Встроенный трей + Gaps + Монолитный бар)!"
     cd ~/suckless
 }
 
 # ===================== СБОРКА DMENU =====================
 build_dmenu() {
-    download_tool "dmenu" \
-        "https://gitee.com/mirrors/dmenu.git" \
-        "https://codeberg.org/gergelylaba/dmenu.git" \
-        "https://web.archive.org/web/20240401000000/https://dl.suckless.org/tools/dmenu-5.3.tar.gz"
+    log "Загрузка и сборка dmenu..."
+    mkdir -p ~/suckless
+    cd ~/suckless
+    rm -rf dmenu dmenu-5.3 dmenu-5.3.tar.gz
 
-    cd ~/suckless/dmenu
+    wget --timeout=15 -q "https://dl.suckless.org/tools/dmenu-5.3.tar.gz" || \
+    curl -sLo dmenu-5.3.tar.gz "https://dl.suckless.org/tools/dmenu-5.3.tar.gz"
+
+    tar -xzf dmenu-5.3.tar.gz
+    mv dmenu-5.3 dmenu
+    rm dmenu-5.3.tar.gz
+    cd dmenu
 
     cat > config.h << 'DMENUCONFIG'
 static int topbar = 1;
@@ -1098,28 +1063,6 @@ DMENUCONFIG
     sudo make clean install
     log "dmenu установлен!"
     cd ~/suckless
-}
-
-# ===================== АВТОГЕНЕРАТОР ОБОЕВ (Warm Monochrome) =====================
-create_wallpaper() {
-    log "Генерация 4K обоев под цветовую гамму Warm Monochrome..."
-    mkdir -p ~/Pictures/Wallpapers
-
-    # Создаем минималистичные 4K обои с помощью ImageMagick
-    if command -v convert &>/dev/null; then
-        convert -size 3840x2160 xc:'#0c0b0a' \
-            -gravity center \
-            -pointsize 32 \
-            -font "JetBrains-Mono" \
-            -fill '#1c1a18' \
-            -draw "text 0,0 'W A R M   M O N O C H R O M E'" \
-            ~/Pictures/Wallpapers/warm-mono.png 2>/dev/null
-        log "Обои сгенерированы: ~/Pictures/Wallpapers/warm-mono.png"
-    else
-        warn "convert (imagemagick) не сработал. Обои будут просто черными."
-        mkdir -p ~/Pictures/Wallpapers
-        touch ~/Pictures/Wallpapers/warm-mono.png
-    fi
 }
 
 # ===================== БУФЕР ОБМЕНА (clipmenu) =====================
@@ -1510,7 +1453,7 @@ NSRESET
     fi
 }
 
-# ===================== СТАТУС-БАР =====================
+# ===================== СТАТУС-БАР (ИСПРАВЛЕННЫЙ CPU НА 100% МАКС) =====================
 create_statusbar() {
     log "Создание статус-бара..."
     mkdir -p ~/suckless
@@ -1522,6 +1465,10 @@ export DISPLAY="${DISPLAY:-:0}"
 
 xsetroot -name " Загрузка... "
 sleep 1
+
+# Переменные для точного вычисления нагрузки CPU
+PREV_TOTAL=0
+PREV_IDLE=0
 
 while true; do
     DATE=$(date +'%a %d %b')
@@ -1581,9 +1528,25 @@ while true; do
         fi
     fi
 
-    # CPU
-    CPU=$(ps -A -o pcpu 2>/dev/null | awk '{s+=$1} END {print int(s)}')
-    [ -n "$CPU" ] || CPU="0"
+    # CPU (Точный расчет глобального использования Linux от 0% до 100%)
+    CPU="0"
+    if [ -f /proc/stat ]; then
+        read -r _ user nice system idle iowait irq softirq steal guest guest_nice < /proc/stat
+        TOTAL=$((user + nice + system + idle + iowait + irq + softirq + steal))
+        DIFF_IDLE=$((idle - PREV_IDLE))
+        DIFF_TOTAL=$((TOTAL - PREV_TOTAL))
+        
+        if [ "$PREV_TOTAL" -gt 0 ] && [ "$DIFF_TOTAL" -gt 0 ]; then
+            CPU=$(( 100 * (DIFF_TOTAL - DIFF_IDLE) / DIFF_TOTAL ))
+        fi
+        
+        # Защита от выхода за пределы
+        [ "$CPU" -gt 100 ] && CPU=100
+        [ "$CPU" -lt 0 ] && CPU=0
+
+        PREV_TOTAL=$TOTAL
+        PREV_IDLE=$idle
+    fi
 
     STATUS=" ${NOTIF}${VOL}${BAT}CPU ${CPU}% | RAM ${RAM} | ${DATE} ${TIME} "
     xsetroot -name "$STATUS"
@@ -1768,12 +1731,17 @@ fi
 setxkbmap -layout us,ru -option grp:win_space_toggle &
 echo "Keyboard layout US/RU initialized (Switch with Win+Space)" >> "$LOG"
 
-# Установка сгенерированных обоев Warm Monochrome
-if [ -f "$HOME/Pictures/Wallpapers/warm-mono.png" ]; then
-    feh --bg-fill "$HOME/Pictures/Wallpapers/warm-mono.png" &
-    echo "Wallpaper initialized" >> "$LOG"
+# ─── УСТАНОВКА ОБОЕВ (ПРОСТАЯ НАСТРОЙКА ПУТИ) ───
+# Чтобы изменить обои, просто скопируй картинку по этому пути 
+# или укажи свой путь к любому файлу ниже:
+WALLPAPER="$HOME/Pictures/Wallpapers/wallpaper.png"
+
+if [ -f "$WALLPAPER" ] && command -v feh &>/dev/null; then
+    feh --bg-fill "$WALLPAPER" &
+    echo "Wallpaper loaded from: $WALLPAPER" >> "$LOG"
 else
     xsetroot -solid "#0c0b0a" &
+    echo "Wallpaper file $WALLPAPER not found. Solid background applied." >> "$LOG"
 fi
 
 xsetroot -cursor_name left_ptr &
@@ -1799,7 +1767,7 @@ if [ -x "$HOME/suckless/dwm-statusbar.sh" ]; then
     "$HOME/suckless/dwm-statusbar.sh" >> "$LOG" 2>&1 &
 fi
 
-# Нативные апплеты стыкуются прямо в бар DWM
+# Сетевой апплет и Blueman нативно сворачиваются в правый угол панели DWM
 (
     sleep 2
     nm-applet 2>>"$LOG" &
@@ -1945,7 +1913,7 @@ DUNST
 create_cheatsheet() {
     cat > ~/dwm-keybinds.txt << 'CHEAT'
 ╔══════════════════════════════════════════════════════════════╗
-║                    DWM KEYBINDINGS v12.0                     ║
+║                    DWM KEYBINDINGS v12.1                     ║
 ╠══════════════════════════════════════════════════════════════╣
 ║  ЗАПУСК ПРОГРАММ                                             ║
 ║  Super + Enter        — Терминал                             ║
@@ -2002,13 +1970,12 @@ run_diagnostics() {
     [ -x ~/suckless/dwm-statusbar.sh ] && log "✓ Статус-бар" || warn "✗ Статус-бар"
     [ -x ~/bin/clipmenu-picker ] && log "✓ Clipmenu-picker" || warn "✗ Clipmenu"
     [ -x ~/bin/notification-center ] && log "✓ Центр уведомлений" || warn "✗ Центр уведомлений"
-    [ -f ~/Pictures/Wallpapers/warm-mono.png ] && log "✓ 4K Обои созданы" || warn "✗ Обои не созданы"
 
     command -v clipmenu &>/dev/null && log "✓ clipmenu установлен" || err "✗ clipmenu НЕ установлен"
     command -v clipmenud &>/dev/null && log "✓ clipmenud (демон) готов" || warn "✗ clipmenud не найден"
     command -v dunstctl &>/dev/null && log "✓ dunstctl (управление уведомлениями)" || warn "✗ dunstctl не найден"
 
-    log "✓ Трей и отступы успешно внедрены"
+    log "✓ Трей и отступы (gaps) успешно скомпилированы в DWM"
 
     echo -e "${CYAN}═══════════════════════════════════${NC}"
     echo ""
@@ -2018,8 +1985,8 @@ run_diagnostics() {
 main() {
     echo ""
     echo -e "${CYAN}╔══════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║   DWM Warm Monochrome v12.0                 ║${NC}"
-    echo -e "${CYAN}║   Нативный Трей + Gaps + Обои + Монолит     ║${NC}"
+    echo -e "${CYAN}║   DWM Warm Monochrome v12.1                 ║${NC}"
+    echo -e "${CYAN}║   Нативный Трей + Gaps + Однородный Бар      ║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
 
@@ -2044,7 +2011,6 @@ main() {
     create_dunst_config
     create_clipmenu_config
     create_notification_center
-    create_wallpaper
     create_dwm_session
     create_session
     create_cheatsheet
@@ -2056,15 +2022,14 @@ main() {
     echo -e "${GREEN}║          УСТАНОВКА ЗАВЕРШЕНА!                ║${NC}"
     echo -e "${GREEN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
-    info "Улучшения v12.0:"
-    echo "  ✓ Трей теперь полностью рабочий, интегрирован прямо в верхнюю панель."
-    echo "  ✓ Исправлены конфликты whitespace-символов при патчинге на CachyOS."
-    echo "  ✓ Добавлены нативные отступы окон (Gaps)."
-    echo "  ✓ Рамка активного окна стала толще — 3px."
-    echo "  ✓ Верхний бар стал монолитным — убран выделяющийся серый блок активного тега."
-    echo "  ✓ Сгенерированы стильные обои теплого монохрома в 4K."
+    info "Что нового в v12.1:"
+    echo "  ✓ Трей нативно интегрирован. Ошибки наложения патча на CachyOS решены."
+    echo "  ✓ Мониторинг CPU исправлен (корректно отображает от 0% до 100%)."
+    echo "  ✓ Рамки окон стали толще и стильнее (borderpx = 4)."
+    echo "  ✓ Верхняя панель стала абсолютно однородной (полностью глубокий черный цвет)."
+    echo "  ✓ Путь к обоям теперь меняется одной строкой в /usr/local/bin/dwm-session."
     echo ""
-    warn "Перезагрузите ПК: reboot"
+    warn "Для вступления изменений в силу перезагрузитесь: reboot"
     echo ""
 }
 
